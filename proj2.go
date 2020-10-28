@@ -7,6 +7,7 @@ package proj2
 import (
 	// You neet to add with
 	// go get github.com/cs161-staff/userlib
+
 	"github.com/cs161-staff/userlib"
 
 	// Life is much easier with json:  You are
@@ -32,7 +33,6 @@ import (
 	// Optional. You can remove the "_" there, but please do not touch
 	// anything else within the import bracket.
 	_ "strconv"
-
 	// if you are looking for fmt, we don't give you fmt, but you can use userlib.DebugMsg.
 	// see someUsefulThings() below:
 )
@@ -68,7 +68,7 @@ func someUsefulThings() {
 	// And a random RSA key.  In this case, ignoring the error
 	// return value
 	var pk userlib.PKEEncKey
-        var sk userlib.PKEDecKey
+	var sk userlib.PKEDecKey
 	pk, sk, _ = userlib.PKEKeyGen()
 	userlib.DebugMsg("Key is %v, %v", pk, sk)
 }
@@ -82,13 +82,153 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 	return
 }
 
-// The structure definition for a user record
-type User struct {
-	Username string
+// some const on length
+const (
+	AESBlockSize = 16 // AES block size is 128 bits = 16 bytes
+	SymKeyLen    = 16
+	MAClen       = 64 // SHA-512 ~ 64 bytes
+)
 
-	// You can add other fields here if you want...
-	// Note for JSON to marshal/unmarshal, the fields need to
-	// be public (start with a capital letter)
+//used in dirEntry.FileType
+const (
+	DEown   = iota
+	DEshare = iota
+)
+
+//used in shareNode.State
+const (
+	SNpending = iota
+	SNactive  = iota
+	SNrevoked = iota
+)
+
+// User struct
+type User struct {
+	Username   string
+	PublicKey  userlib.PKEEncKey
+	PrivateKey userlib.PKEDecKey
+	Dir        map[string]dirEntry
+}
+
+type dirEntry struct {
+	FileType  int
+	Addr      uuid.UUID
+	CryptoKey [32]byte
+	MACKey    [32]byte
+}
+
+type fileNode struct {
+	FileAddr      uuid.UUID
+	FileCryptoKey [32]byte
+	FileMACKey    [32]byte
+	Sharing       map[string]shareEntry
+}
+
+type shareNode struct {
+	FileAddr      uuid.UUID
+	FileCryptoKey [32]byte
+	FileMACKey    [32]byte
+	State         int
+}
+
+type shareEntry struct {
+	Addr      uuid.UUID
+	CryptoKey [32]byte
+	MACKey    [32]byte
+}
+
+type fileHeader struct {
+	FileLength uint
+	BlockNum   uint
+	Blocks     []blockPtr
+}
+type blockPtr struct {
+	Len       uint
+	Addr      uuid.UUID
+	CryptoKey [32]byte
+	MACKey    [32]byte
+}
+
+type accessToken struct {
+	ShareNodeAddr      uuid.UUID
+	ShareNodeCryptoKey [32]byte
+	ShareNodeMACKey    [32]byte
+	Certificate        []byte
+}
+
+//concatenate two slices
+func concatenate(s1 []byte, s2 []byte) []byte {
+	var re []byte = s1
+	for i := 0; i < len(s2); i++ {
+		re = append(re, s2[i])
+	}
+	return re
+}
+
+// SafeSet do marshal(), enc(), MAC(), DatastroeSet(). return nil upon success
+func SafeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) error {
+	//marshal to json text
+	plainText, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	//pad to block length
+	var padlen uint8 = uint8(AESBlockSize - len(plainText)%AESBlockSize)
+	if padlen == 0 {
+		padlen = AESBlockSize
+	}
+	for i := 0; uint8(i) < padlen; i++ {
+		plainText = append(plainText, padlen)
+	}
+	//encrypt plainText
+	cipherText := userlib.SymEnc(cryptoKey, userlib.RandomBytes(AESBlockSize), plainText)
+	//// userlib.DebugMsg(strconv.Itoa(int(plainText[len(plainText)-4])))
+
+	//C||MAC(C)
+	MAC, err := userlib.HMACEval(MACKey, cipherText)
+	if err != nil {
+		return err
+	}
+	data := concatenate(cipherText, MAC)
+	//store data
+	userlib.DatastoreSet(addr, data)
+	return nil
+}
+
+// SafeGet do DatastroeGet(), check MAC(), dec(), un-marshal(). return nil upon success
+func SafeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) error {
+	// fetch the data from Datastore
+	data, exist := userlib.DatastoreGet(addr)
+	if !exist {
+		return errors.New("data on Datastroe not found")
+	}
+	if len(data) <= MAClen {
+		return errors.New("data on Datastroe is modified")
+	}
+
+	cipherText := data[:len(data)-MAClen]
+	fMAC := data[len(data)-MAClen:]
+
+	// check MAC code
+	sMAC, err := userlib.HMACEval(MACKey, cipherText)
+	if err != nil {
+		return err
+	}
+	if !userlib.HMACEqual(fMAC, sMAC) {
+		return errors.New("data on Datastore is modified")
+	}
+
+	// decrypt
+	plainText := userlib.SymDec(cryptoKey, cipherText)
+
+	// discard padding
+	padlen := int(plainText[len(plainText)-1])
+	plainText = plainText[:len(plainText)-padlen]
+
+	// unmarshal
+	err = json.Unmarshal(plainText, obj)
+
+	return err
 }
 
 // This creates a user.  It will only be called once for a user
@@ -107,24 +247,98 @@ type User struct {
 // the attackers may possess a precomputed tables containing
 // hashes of common passwords downloaded from the internet.
 func InitUser(username string, password string) (userdataptr *User, err error) {
-	var userdata User
-	userdataptr = &userdata
+	var user User
+	// generare a-sym keys
+	PublicKey, PrivateKey, err := userlib.PKEKeyGen()
+	if err != nil {
+		return nil, err
+	}
 
-	//TODO: This is a toy implementation.
-	userdata.Username = username
-	//End of toy implementation
+	// set to user in memory
+	user.Username = username
+	user.PublicKey = PublicKey
+	user.PrivateKey = PrivateKey
+	user.Dir = make(map[string]dirEntry)
 
-	return &userdata, nil
+	// store public key on Keystore
+	publicKeyAddr := userlib.Argon2Key([]byte(username), nil, 64)
+	err = userlib.KeystoreSet(hex.EncodeToString(publicKeyAddr), PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// store user record to Datastore
+	// the addr
+	addr, err := uuid.FromBytes(userlib.Argon2Key([]byte(username), []byte(password), 16))
+	if err != nil {
+		return nil, err
+	}
+	// the encryption key
+	encKey, err := userlib.HashKDF(
+		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
+		[]byte("RootCrypto"))
+	if err != nil {
+		return nil, err
+	}
+	encKey = encKey[:SymKeyLen]
+	// the MACKey
+	MACKey, err := userlib.HashKDF(
+		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
+		[]byte("RootMAC"))
+	if err != nil {
+		return nil, err
+	}
+	MACKey = MACKey[:SymKeyLen]
+
+	err = SafeSet(addr, user, encKey, MACKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
 }
 
 // This fetches the user information from the Datastore.  It should
 // fail with an error if the user/password is invalid, or if the user
 // data was corrupted, or if the user can't be found.
 func GetUser(username string, password string) (userdataptr *User, err error) {
-	var userdata User
-	userdataptr = &userdata
+	var user User
+	//addr
+	addr, err := uuid.FromBytes(userlib.Argon2Key([]byte(username), []byte(password), 16))
+	if err != nil {
+		return nil, err
+	}
+	// the encryption key
+	encKey, err := userlib.HashKDF(
+		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
+		[]byte("RootCrypto"))
+	if err != nil {
+		return nil, err
+	}
+	encKey = encKey[:SymKeyLen]
+	// the MACKey
+	MACKey, err := userlib.HashKDF(
+		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
+		[]byte("RootMAC"))
+	if err != nil {
+		return nil, err
+	}
+	MACKey = MACKey[:SymKeyLen]
 
-	return userdataptr, nil
+	// get user to local
+	err = SafeGet(addr, &user, encKey, MACKey)
+	if err != nil {
+		return nil, errors.New("user not found or username-password unmatch; " + err.Error())
+	}
+
+	//verify public key on Keystore
+	publicKeyAddr := userlib.Argon2Key([]byte(username), nil, 64)
+	_, ok := userlib.KeystoreGet(hex.EncodeToString(publicKeyAddr))
+	if !ok {
+		return nil, errors.New("Keystore get PublicKey failed")
+	}
+
+	return &user, nil
 }
 
 // This stores a file in the datastore.
