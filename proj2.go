@@ -85,8 +85,8 @@ func bytesToUUID(data []byte) (ret uuid.UUID) {
 // some const on length
 const (
 	AESBlockSize = 16 // AES block size is 128 bits = 16 bytes
-	SymKeyLen    = 16
-	MAClen       = 64 // SHA-512 ~ 64 bytes
+	SymKeyLen    = 32 // symtric key length = 256bits = 32 bytes
+	MAClen       = 64 // SHA-512 = 64 bytes
 )
 
 //used in dirEntry.FileType
@@ -104,37 +104,41 @@ const (
 
 // User struct
 type User struct {
-	Username   string
-	PublicKey  userlib.PKEEncKey
-	PrivateKey userlib.PKEDecKey
-	Dir        map[string]dirEntry
+	UserName      string
+	PassWord      string
+	PublicKey     userlib.PKEEncKey
+	PrivateKey    userlib.PKEDecKey
+	Dir           map[string]dirEntry
+	addr          uuid.UUID
+	rootCryptoKey []byte
+	rootMACKey    []byte
 }
 
 type dirEntry struct {
-	FileType  int
-	Addr      uuid.UUID
-	CryptoKey [32]byte
-	MACKey    [32]byte
+	FileType      int
+	NodeAddr      uuid.UUID
+	NodeCryptoKey []byte
+	NodeMACKey    []byte
 }
 
 type fileNode struct {
-	FileAddr      uuid.UUID
-	FileCryptoKey [32]byte
-	FileMACKey    [32]byte
-	Sharing       map[string]shareEntry
+	FileHeaderAddr      uuid.UUID
+	FileHeaderCryptoKey []byte
+	FileHeaderMACKey    []byte
+	Sharing             map[string]shareEntry
 }
 
 type shareNode struct {
-	FileAddr      uuid.UUID
-	FileCryptoKey [32]byte
-	FileMACKey    [32]byte
-	State         int
+	FileHeaderAddr      uuid.UUID
+	FileHeaderCryptoKey []byte
+	FileHeaderMACKey    []byte
+	State               int
 }
 
 type shareEntry struct {
 	Addr      uuid.UUID
-	CryptoKey [32]byte
-	MACKey    [32]byte
+	CryptoKey []byte
+	MACKey    []byte
 }
 
 type fileHeader struct {
@@ -143,16 +147,15 @@ type fileHeader struct {
 	Blocks     []blockPtr
 }
 type blockPtr struct {
-	Len       uint
-	Addr      uuid.UUID
-	CryptoKey [32]byte
-	MACKey    [32]byte
+	BlockAddr      uuid.UUID
+	BlockCryptoKey []byte
+	BlockMACKey    []byte
 }
 
 type accessToken struct {
 	ShareNodeAddr      uuid.UUID
-	ShareNodeCryptoKey [32]byte
-	ShareNodeMACKey    [32]byte
+	ShareNodeCryptoKey []byte
+	ShareNodeMACKey    []byte
 	Certificate        []byte
 }
 
@@ -191,6 +194,7 @@ func SafeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 	}
 	data := concatenate(cipherText, MAC)
 	//store data
+	userlib.DatastoreDelete(addr)
 	userlib.DatastoreSet(addr, data)
 	return nil
 }
@@ -247,24 +251,17 @@ func SafeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 // the attackers may possess a precomputed tables containing
 // hashes of common passwords downloaded from the internet.
 func InitUser(username string, password string) (userdataptr *User, err error) {
-	var user User
 	// generare a-sym keys
 	PublicKey, PrivateKey, err := userlib.PKEKeyGen()
 	if err != nil {
 		return nil, err
 	}
 
-	// set to user in memory
-	user.Username = username
-	user.PublicKey = PublicKey
-	user.PrivateKey = PrivateKey
-	user.Dir = make(map[string]dirEntry)
-
 	// store public key on Keystore
 	publicKeyAddr := userlib.Argon2Key([]byte(username), nil, 64)
 	err = userlib.KeystoreSet(hex.EncodeToString(publicKeyAddr), PublicKey)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("username probabily been used" + err.Error())
 	}
 
 	// store user record to Datastore
@@ -274,13 +271,13 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return nil, err
 	}
 	// the encryption key
-	encKey, err := userlib.HashKDF(
+	cryptoKey, err := userlib.HashKDF(
 		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
 		[]byte("RootCrypto"))
 	if err != nil {
 		return nil, err
 	}
-	encKey = encKey[:SymKeyLen]
+	cryptoKey = cryptoKey[:SymKeyLen]
 	// the MACKey
 	MACKey, err := userlib.HashKDF(
 		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
@@ -290,7 +287,9 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 	MACKey = MACKey[:SymKeyLen]
 
-	err = SafeSet(addr, user, encKey, MACKey)
+	// set user and store to Dataset
+	user := User{username, password, PublicKey, PrivateKey, make(map[string]dirEntry), addr, cryptoKey, MACKey}
+	err = SafeSet(addr, user, cryptoKey, MACKey)
 	if err != nil {
 		return nil, err
 	}
@@ -309,13 +308,13 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 		return nil, err
 	}
 	// the encryption key
-	encKey, err := userlib.HashKDF(
+	cryptoKey, err := userlib.HashKDF(
 		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
 		[]byte("RootCrypto"))
 	if err != nil {
 		return nil, err
 	}
-	encKey = encKey[:SymKeyLen]
+	cryptoKey = cryptoKey[:SymKeyLen]
 	// the MACKey
 	MACKey, err := userlib.HashKDF(
 		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
@@ -326,17 +325,15 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	MACKey = MACKey[:SymKeyLen]
 
 	// get user to local
-	err = SafeGet(addr, &user, encKey, MACKey)
+	err = SafeGet(addr, &user, cryptoKey, MACKey)
 	if err != nil {
 		return nil, errors.New("user not found or username-password unmatch; " + err.Error())
 	}
 
-	//verify public key on Keystore
-	publicKeyAddr := userlib.Argon2Key([]byte(username), nil, 64)
-	_, ok := userlib.KeystoreGet(hex.EncodeToString(publicKeyAddr))
-	if !ok {
-		return nil, errors.New("Keystore get PublicKey failed")
-	}
+	//update user metadata
+	user.addr = addr
+	user.rootCryptoKey = cryptoKey
+	user.rootMACKey = MACKey
 
 	return &user, nil
 }
@@ -345,14 +342,38 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 //
 // The plaintext of the filename + the plaintext and length of the filename
 // should NOT be revealed to the datastore!
-func (userdata *User) StoreFile(filename string, data []byte) {
+func (user *User) StoreFile(filename string, data []byte) {
+	if _, ok := user.Dir[filename]; ok {
+		//file already exist
+		return
+	}
 
-	//TODO: This is a toy implementation.
-	UUID, _ := uuid.FromBytes([]byte(filename + userdata.Username)[:16])
-	packaged_data, _ := json.Marshal(data)
-	userlib.DatastoreSet(UUID, packaged_data)
-	//End of toy implementation
+	// generate random encryption keys
+	FileNodeAddr := uuid.New()
+	FileNodeCryptoKey := userlib.RandomBytes(SymKeyLen)
+	FileNodeMACKey := userlib.RandomBytes(SymKeyLen)
 
+	FileHeaderAddr := uuid.New()
+	FileHeaderCryptoKey := userlib.RandomBytes(SymKeyLen)
+	FileHeaderMACKey := userlib.RandomBytes(SymKeyLen)
+
+	BlockAddr := uuid.New()
+	BlockCryptoKey := userlib.RandomBytes(SymKeyLen)
+	BlockMACKey := userlib.RandomBytes(SymKeyLen)
+
+	// init and set all index strcture
+	DirEntry := dirEntry{DEown, FileNodeAddr, FileNodeCryptoKey, FileNodeMACKey}
+	user.Dir[filename] = DirEntry
+	FileNode := fileNode{FileHeaderAddr, FileHeaderCryptoKey, FileHeaderMACKey, make(map[string]shareEntry)}
+	FileHeader := fileHeader{uint(len(data)), 1, make([]blockPtr, 1)}
+	BlockPtr := blockPtr{BlockAddr, BlockCryptoKey, BlockMACKey}
+	FileHeader.Blocks[0] = BlockPtr
+
+	// push to Datastore
+	SafeSet(user.addr, user, user.rootCryptoKey, user.rootMACKey)
+	SafeSet(FileNodeAddr, FileNode, FileNodeCryptoKey, FileNodeMACKey)
+	SafeSet(FileHeaderAddr, FileHeader, FileHeaderCryptoKey, FileHeaderMACKey)
+	SafeSet(BlockAddr, data, BlockCryptoKey, BlockMACKey)
 	return
 }
 
@@ -368,19 +389,49 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error) {
 // This loads a file from the Datastore.
 //
 // It should give an error if the file is corrupted in any way.
-func (userdata *User) LoadFile(filename string) (data []byte, err error) {
-
-	//TODO: This is a toy implementation.
-	UUID, _ := uuid.FromBytes([]byte(filename + userdata.Username)[:16])
-	packaged_data, ok := userlib.DatastoreGet(UUID)
-	if !ok {
-		return nil, errors.New(strings.ToTitle("File not found!"))
+func (user *User) LoadFile(filename string) (data []byte, err error) {
+	//locally get DirEntry of "filename"
+	DirEntry, exist := user.Dir[filename]
+	if !exist {
+		return nil, errors.New("filename not exist")
 	}
-	json.Unmarshal(packaged_data, &data)
-	return data, nil
-	//End of toy implementation
 
-	return
+	// remotely get FileHeader based on DirEntry.FileType
+	var FileHeader fileHeader
+	if DirEntry.FileType == DEown {
+		var FileNode fileNode
+		err = SafeGet(DirEntry.NodeAddr, &FileNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
+		if err != nil {
+			return nil, errors.New("LoadFile() fail to load FileNode; " + err.Error())
+		}
+
+		SafeGet(FileNode.FileHeaderAddr, &FileHeader, FileNode.FileHeaderCryptoKey, FileNode.FileHeaderMACKey)
+		if err != nil {
+			return nil, errors.New("LoadFile() fail to load FileHeader; " + err.Error())
+		}
+	} else if DirEntry.FileType == DEshare {
+		var ShareNode shareNode
+		err = SafeGet(DirEntry.NodeAddr, &ShareNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
+		if err != nil {
+			return nil, errors.New("LoadFile() fail to load FileNode; " + err.Error())
+		}
+		SafeGet(ShareNode.FileHeaderAddr, &FileHeader, ShareNode.FileHeaderCryptoKey, ShareNode.FileHeaderMACKey)
+		if err != nil {
+			return nil, errors.New("LoadFile() fail to load FileHeader; " + err.Error())
+		}
+	}
+
+	// get the file data
+	var temp []byte
+	for i := 0; i < int(FileHeader.BlockNum); i++ {
+		BlockPtr := FileHeader.Blocks[i]
+		err = SafeGet(BlockPtr.BlockAddr, &temp, BlockPtr.BlockCryptoKey, BlockPtr.BlockMACKey)
+		if err != nil {
+			return nil, errors.New("LoadFile() fail to load data blocks; " + err.Error())
+		}
+		data = concatenate(data, temp)
+	}
+	return data, nil
 }
 
 // This creates a sharing record, which is a key pointing to something

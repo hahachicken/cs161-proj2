@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	_ "encoding/json"
 	_ "errors"
+	"reflect"
 	_ "strconv"
 	_ "strings"
 	"testing"
@@ -24,28 +25,6 @@ func clear() {
 }
 
 /*
-func TestStorage(t *testing.T) {
-	clear()
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
-
-	v := []byte("This is a test")
-	u.StoreFile("file1", v)
-
-	v2, err2 := u.LoadFile("file1")
-	if err2 != nil {
-		t.Error("Failed to upload and download", err2)
-		return
-	}
-	if !reflect.DeepEqual(v, v2) {
-		t.Error("Downloaded file is not the same", v, v2)
-		return
-	}
-}
-
 func TestInvalidFile(t *testing.T) {
 	clear()
 	u, err := InitUser("alice", "fubar")
@@ -222,9 +201,9 @@ func TestSafeGet_Negative(t *testing.T) {
 
 }
 
-func TestInitUser(t *testing.T) {
+func TestInitUser_Postive(t *testing.T) {
 	clear()
-	t.Log("InitUser() test")
+	t.Log("InitUser() Postive test")
 
 	// You can set this to false!
 	userlib.SetDebugStatus(true)
@@ -232,7 +211,23 @@ func TestInitUser(t *testing.T) {
 	_, err := InitUser("alice", "fubar")
 	if err != nil {
 		// t.Error says the test fails
-		t.Error("Failed to initialize user", err)
+		t.Error("Failed to initialize user; ", err)
+		return
+	}
+}
+
+func TestInitUser_Negative(t *testing.T) {
+	clear()
+	t.Log("InitUser() negative test")
+
+	// You can set this to false!
+	userlib.SetDebugStatus(true)
+
+	_, err := InitUser("alice", "fubar")
+	_, err = InitUser("alice", "f")
+	if err == nil {
+		// t.Error says the test fails
+		t.Error("successed to initialize user (should failed); ", err)
 		return
 	}
 	// t.Log() only produces output if you run with "go test -v"
@@ -249,19 +244,19 @@ func TestGetUser_Postive(t *testing.T) {
 	old, err := InitUser("alice", "password")
 	if err != nil {
 		// t.Error says the test fails
-		t.Error("Failed to initialize user", err)
+		t.Error("Failed to initialize user; ", err)
 		return
 	}
 
 	new, err := GetUser("alice", "password")
 
 	if err != nil {
-		t.Error("Fail to get user;", err)
+		t.Error("Fail to get user; ", err)
 		return
 	}
 
 	if !equ(old, new) {
-		t.Error("GetUser not the same with the previous user")
+		t.Error("GetUser not the same with the init user")
 		return
 	}
 }
@@ -276,20 +271,48 @@ func TestGetUser_Negative(t *testing.T) {
 	_, err := InitUser("alice", "password")
 	if err != nil {
 		// t.Error says the test fails
-		t.Error("Failed to initialize user", err)
+		t.Error("Failed to initialize user; ", err)
 		return
 	}
 
 	_, err = GetUser("alice", "Password")
 	if err == nil {
-		t.Error("get user success(should failed);", err)
+		t.Error("get user success(should failed); ", err)
 		return
 	}
 
 	_, err = GetUser("Alice", "password")
-	t.Log("err:", err)
 	if err == nil {
 		t.Error("get user success(should failed);", err)
+		return
+	}
+}
+
+func TestStorage(t *testing.T) {
+	clear()
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	v := []byte("This is a test")
+	u.StoreFile("file1", v)
+
+	v2, err2 := u.LoadFile("file1")
+	if err2 != nil {
+		t.Error(err2)
+		return
+	}
+
+	v3, err3 := u.LoadFile("file1")
+	if err3 != nil {
+		t.Error(err3)
+		return
+	}
+
+	if !reflect.DeepEqual(v, v2) || !reflect.DeepEqual(v, v3) {
+		t.Error("Downloaded file is not the same", v, v2)
 		return
 	}
 }
