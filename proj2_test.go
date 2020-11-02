@@ -5,7 +5,6 @@ package proj2
 
 import (
 	_ "encoding/hex"
-	"encoding/json"
 	_ "encoding/json"
 	_ "errors"
 	"reflect"
@@ -89,26 +88,12 @@ func TestShare(t *testing.T) {
 }
 */
 
-func equ(a interface{}, b interface{}) bool {
-	aM, _ := json.Marshal(a)
-	bM, _ := json.Marshal(b)
-	if len(aM) != len(bM) {
-		return false
-	}
-	for i := 0; i < len(aM); i++ {
-		if aM[i] != bM[i] {
-			return false
-		}
-	}
-	return true
-}
-
 type T struct {
 	X int
 	Y string
 }
 
-func TestSafeSet_Postive(t *testing.T) {
+func Test_helper_1(t *testing.T) {
 	t.Log("SafeSet() test")
 	userlib.SetDebugStatus(true)
 	err := SafeSet(uuid.New(), T{1, "Wei"}, userlib.RandomBytes(32), userlib.RandomBytes(32))
@@ -118,7 +103,7 @@ func TestSafeSet_Postive(t *testing.T) {
 	}
 }
 
-func TestSafeGet_Postive(t *testing.T) {
+func Test_helper_2(t *testing.T) {
 	t.Log("SafeGet() postive test")
 	userlib.SetDebugStatus(true)
 	addr := uuid.New()
@@ -133,13 +118,13 @@ func TestSafeGet_Postive(t *testing.T) {
 		t.Error()
 		return
 	}
-	if !equ(putObj, reObj) {
+	if !reflect.DeepEqual(putObj, reObj) {
 		t.Error()
 		return
 	}
 }
 
-func TestSafeGet_Negative(t *testing.T) {
+func Test_helper_3(t *testing.T) {
 	t.Log("SafeGet() negative test")
 	userlib.SetDebugStatus(true)
 
@@ -201,7 +186,7 @@ func TestSafeGet_Negative(t *testing.T) {
 
 }
 
-func TestInitUser_Postive(t *testing.T) {
+func Test_1(t *testing.T) {
 	clear()
 	t.Log("InitUser() Postive test")
 
@@ -216,7 +201,7 @@ func TestInitUser_Postive(t *testing.T) {
 	}
 }
 
-func TestInitUser_Negative(t *testing.T) {
+func Test_2(t *testing.T) {
 	clear()
 	t.Log("InitUser() negative test")
 
@@ -234,7 +219,7 @@ func TestInitUser_Negative(t *testing.T) {
 	// t.Log("Got user", u)
 }
 
-func TestGetUser_Postive(t *testing.T) {
+func Test_3(t *testing.T) {
 	clear()
 	t.Log("GetUser() positive test")
 
@@ -255,13 +240,13 @@ func TestGetUser_Postive(t *testing.T) {
 		return
 	}
 
-	if !equ(old, new) {
+	if !reflect.DeepEqual(old, new) {
 		t.Error("GetUser not the same with the init user")
 		return
 	}
 }
 
-func TestGetUser_Negative(t *testing.T) {
+func Test_4(t *testing.T) {
 	clear()
 	t.Log("GetUser() negative test")
 
@@ -288,8 +273,10 @@ func TestGetUser_Negative(t *testing.T) {
 	}
 }
 
-func TestStorage(t *testing.T) {
+func Test_5(t *testing.T) {
 	clear()
+	t.Log("StoreFile() & LoadFile() postive test")
+
 	u, err := InitUser("alice", "fubar")
 	if err != nil {
 		t.Error("Failed to initialize user", err)
@@ -313,6 +300,41 @@ func TestStorage(t *testing.T) {
 
 	if !reflect.DeepEqual(v, v2) || !reflect.DeepEqual(v, v3) {
 		t.Error("Downloaded file is not the same", v, v2)
+		return
+	}
+}
+
+func Test_6(t *testing.T) {
+	clear()
+	t.Log("AppendFile() positve test")
+
+	u, err := InitUser("alice", "fubar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	v1 := []byte("This is a test")
+	u.StoreFile("file1", v1)
+
+	v2 := []byte("This is append message")
+	u.AppendFile("file1", v2)
+
+	v := concatenate(v1, v2)
+
+	vp, err := u.LoadFile("file1")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	vpp, err := u.LoadFile("file1")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if !reflect.DeepEqual(v, vp) || !reflect.DeepEqual(v, vpp) {
+		t.Error("Downloaded file is not the same", v, vp)
 		return
 	}
 }

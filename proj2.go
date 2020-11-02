@@ -121,18 +121,20 @@ type dirEntry struct {
 	NodeMACKey    []byte
 }
 
-type fileNode struct {
+type node struct {
 	FileHeaderAddr      uuid.UUID
 	FileHeaderCryptoKey []byte
 	FileHeaderMACKey    []byte
-	Sharing             map[string]shareEntry
+}
+
+type fileNode struct {
+	Node    node
+	Sharing map[string]shareEntry
 }
 
 type shareNode struct {
-	FileHeaderAddr      uuid.UUID
-	FileHeaderCryptoKey []byte
-	FileHeaderMACKey    []byte
-	State               int
+	Node  node
+	State int
 }
 
 type shareEntry struct {
@@ -348,32 +350,32 @@ func (user *User) StoreFile(filename string, data []byte) {
 		return
 	}
 
-	// generate random encryption keys
-	FileNodeAddr := uuid.New()
-	FileNodeCryptoKey := userlib.RandomBytes(SymKeyLen)
-	FileNodeMACKey := userlib.RandomBytes(SymKeyLen)
-
-	FileHeaderAddr := uuid.New()
-	FileHeaderCryptoKey := userlib.RandomBytes(SymKeyLen)
-	FileHeaderMACKey := userlib.RandomBytes(SymKeyLen)
-
-	BlockAddr := uuid.New()
-	BlockCryptoKey := userlib.RandomBytes(SymKeyLen)
-	BlockMACKey := userlib.RandomBytes(SymKeyLen)
-
 	// init and set all index strcture
-	DirEntry := dirEntry{DEown, FileNodeAddr, FileNodeCryptoKey, FileNodeMACKey}
+	DirEntry := dirEntry{
+		DEown,
+		uuid.New(),
+		userlib.RandomBytes(SymKeyLen),
+		userlib.RandomBytes(SymKeyLen)}
 	user.Dir[filename] = DirEntry
-	FileNode := fileNode{FileHeaderAddr, FileHeaderCryptoKey, FileHeaderMACKey, make(map[string]shareEntry)}
-	FileHeader := fileHeader{uint(len(data)), 1, make([]blockPtr, 1)}
-	BlockPtr := blockPtr{BlockAddr, BlockCryptoKey, BlockMACKey}
+
+	FileNode := fileNode{
+		node{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)},
+		make(map[string]shareEntry)}
+	FileHeader := fileHeader{
+		uint(len(data)),
+		1,
+		make([]blockPtr, 1)}
+	BlockPtr := blockPtr{
+		uuid.New(),
+		userlib.RandomBytes(SymKeyLen),
+		userlib.RandomBytes(SymKeyLen)}
 	FileHeader.Blocks[0] = BlockPtr
 
 	// push to Datastore
 	SafeSet(user.addr, user, user.rootCryptoKey, user.rootMACKey)
-	SafeSet(FileNodeAddr, FileNode, FileNodeCryptoKey, FileNodeMACKey)
-	SafeSet(FileHeaderAddr, FileHeader, FileHeaderCryptoKey, FileHeaderMACKey)
-	SafeSet(BlockAddr, data, BlockCryptoKey, BlockMACKey)
+	SafeSet(DirEntry.NodeAddr, FileNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
+	SafeSet(FileNode.Node.FileHeaderAddr, FileHeader, FileNode.Node.FileHeaderCryptoKey, FileNode.Node.FileHeaderMACKey)
+	SafeSet(BlockPtr.BlockAddr, data, BlockPtr.BlockCryptoKey, BlockPtr.BlockMACKey)
 	return
 }
 
@@ -382,8 +384,48 @@ func (user *User) StoreFile(filename string, data []byte) {
 // Append should be efficient, you shouldn't rewrite or reencrypt the
 // existing file, but only whatever additional information and
 // metadata you need.
-func (userdata *User) AppendFile(filename string, data []byte) (err error) {
-	return
+func (user *User) AppendFile(filename string, data []byte) (err error) {
+	//locally get DirEntry of "filename"
+	DirEntry, exist := user.Dir[filename]
+	if !exist {
+		return errors.New("filename not exist")
+	}
+
+	// remotely get Node depend on own/share
+	var Node node
+	if DirEntry.FileType == DEown {
+		var FileNode fileNode
+		err = SafeGet(DirEntry.NodeAddr, &FileNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
+		if err != nil {
+			return errors.New("AppendFile() fail to load FileNode; " + err.Error())
+		}
+		Node = FileNode.Node
+	} else if DirEntry.FileType == DEshare {
+		var ShareNode shareNode
+		err = SafeGet(DirEntry.NodeAddr, &ShareNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
+		if err != nil {
+			return errors.New("AppendFile() fail to load FileNode; " + err.Error())
+		}
+		Node = ShareNode.Node
+	}
+
+	// remotely get FileHeader
+	var FileHeader fileHeader
+	SafeGet(Node.FileHeaderAddr, &FileHeader, Node.FileHeaderCryptoKey, Node.FileHeaderMACKey)
+	if err != nil {
+		return errors.New("AppendFile() fail to load FileHeader; " + err.Error())
+	}
+
+	// set file header
+	BlockPtr := blockPtr{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)}
+	FileHeader.FileLength += uint(len(data))
+	FileHeader.BlockNum++
+	FileHeader.Blocks = append(FileHeader.Blocks, BlockPtr)
+
+	// put back on Datastore
+	SafeSet(Node.FileHeaderAddr, FileHeader, Node.FileHeaderCryptoKey, Node.FileHeaderMACKey)
+	SafeSet(BlockPtr.BlockAddr, data, BlockPtr.BlockCryptoKey, BlockPtr.BlockMACKey)
+	return nil
 }
 
 // This loads a file from the Datastore.
@@ -396,29 +438,29 @@ func (user *User) LoadFile(filename string) (data []byte, err error) {
 		return nil, errors.New("filename not exist")
 	}
 
-	// remotely get FileHeader based on DirEntry.FileType
-	var FileHeader fileHeader
+	// remotely get Node depend on own/share
+	var Node node
 	if DirEntry.FileType == DEown {
 		var FileNode fileNode
 		err = SafeGet(DirEntry.NodeAddr, &FileNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
 		if err != nil {
 			return nil, errors.New("LoadFile() fail to load FileNode; " + err.Error())
 		}
-
-		SafeGet(FileNode.FileHeaderAddr, &FileHeader, FileNode.FileHeaderCryptoKey, FileNode.FileHeaderMACKey)
-		if err != nil {
-			return nil, errors.New("LoadFile() fail to load FileHeader; " + err.Error())
-		}
+		Node = FileNode.Node
 	} else if DirEntry.FileType == DEshare {
 		var ShareNode shareNode
 		err = SafeGet(DirEntry.NodeAddr, &ShareNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
 		if err != nil {
 			return nil, errors.New("LoadFile() fail to load FileNode; " + err.Error())
 		}
-		SafeGet(ShareNode.FileHeaderAddr, &FileHeader, ShareNode.FileHeaderCryptoKey, ShareNode.FileHeaderMACKey)
-		if err != nil {
-			return nil, errors.New("LoadFile() fail to load FileHeader; " + err.Error())
-		}
+		Node = ShareNode.Node
+	}
+
+	// remotely get FileHeader
+	var FileHeader fileHeader
+	SafeGet(Node.FileHeaderAddr, &FileHeader, Node.FileHeaderCryptoKey, Node.FileHeaderMACKey)
+	if err != nil {
+		return nil, errors.New("LoadFile() fail to load FileHeader; " + err.Error())
 	}
 
 	// get the file data
