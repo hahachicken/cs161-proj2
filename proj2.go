@@ -25,7 +25,6 @@ import (
 	"github.com/google/uuid"
 
 	// Useful for debug messages, or string manipulation for datastore keys.
-	"strings"
 
 	// Want to import errors.
 	"errors"
@@ -36,42 +35,6 @@ import (
 	// if you are looking for fmt, we don't give you fmt, but you can use userlib.DebugMsg.
 	// see someUsefulThings() below:
 )
-
-// This serves two purposes:
-// a) It shows you some useful primitives, and
-// b) it suppresses warnings for items not being imported.
-// Of course, this function can be deleted.
-func someUsefulThings() {
-	// Creates a random UUID
-	f := uuid.New()
-	userlib.DebugMsg("UUID as string:%v", f.String())
-
-	// Example of writing over a byte of f
-	f[0] = 10
-	userlib.DebugMsg("UUID as string:%v", f.String())
-
-	// takes a sequence of bytes and renders as hex
-	h := hex.EncodeToString([]byte("fubar"))
-	userlib.DebugMsg("The hex: %v", h)
-
-	// Marshals data into a JSON representation
-	// Will actually work with go structures as well
-	d, _ := json.Marshal(f)
-	userlib.DebugMsg("The json data: %v", string(d))
-	var g uuid.UUID
-	json.Unmarshal(d, &g)
-	userlib.DebugMsg("Unmashaled data %v", g.String())
-
-	// This creates an error type
-	userlib.DebugMsg("Creation of error %v", errors.New(strings.ToTitle("This is an error")))
-
-	// And a random RSA key.  In this case, ignoring the error
-	// return value
-	var pk userlib.PKEEncKey
-	var sk userlib.PKEDecKey
-	pk, sk, _ = userlib.PKEKeyGen()
-	userlib.DebugMsg("Key is %v, %v", pk, sk)
-}
 
 // Helper function: Takes the first 16 bytes and
 // converts it into the UUID type
@@ -89,79 +52,45 @@ const (
 	MAClen       = 64 // SHA-512 = 64 bytes
 )
 
-//used in dirEntry.FileType
-const (
-	DEown   = iota
-	DEshare = iota
-)
-
 //used in shareNode.State
 const (
-	SNpending = iota
-	SNactive  = iota
-	SNrevoked = iota
+	NODE_own     = iota
+	NODE_pending = iota
+	NODE_active  = iota
+	NODE_revoked = iota
 )
 
-// User struct
-type User struct {
-	UserName      string
-	PassWord      string
-	PublicKey     userlib.PKEEncKey
-	PrivateKey    userlib.PKEDecKey
-	Dir           map[string]dirEntry
-	addr          uuid.UUID
-	rootCryptoKey []byte
-	rootMACKey    []byte
-}
-
-type dirEntry struct {
-	FileType      int
-	NodeAddr      uuid.UUID
-	NodeCryptoKey []byte
-	NodeMACKey    []byte
-}
-
-type node struct {
-	FileHeaderAddr      uuid.UUID
-	FileHeaderCryptoKey []byte
-	FileHeaderMACKey    []byte
-}
-
-type fileNode struct {
-	Node    node
-	Sharing map[string]shareEntry
-}
-
-type shareNode struct {
-	Node  node
-	State int
-}
-
-type shareEntry struct {
+type ptr struct {
 	Addr      uuid.UUID
 	CryptoKey []byte
 	MACKey    []byte
 }
 
+// User struct
+type User struct {
+	// public fields
+	PrivateKey userlib.PKEDecKey
+	SignKey    userlib.DSSignKey
+	Dir        map[string]ptr
+	// private fields
+	username string
+	password string
+	rootPtr  ptr
+}
+
+type fileNode struct {
+	State     int
+	HeaderPtr ptr
+	Sharing   map[string]ptr
+}
+
 type fileHeader struct {
 	FileLength uint
-	BlockNum   uint
-	Blocks     []blockPtr
-}
-type blockPtr struct {
-	BlockAddr      uuid.UUID
-	BlockCryptoKey []byte
-	BlockMACKey    []byte
+	BlockPtrs  []ptr
 }
 
-type accessToken struct {
-	ShareNodeAddr      uuid.UUID
-	ShareNodeCryptoKey []byte
-	ShareNodeMACKey    []byte
-	Certificate        []byte
-}
-
-//concatenate two slices
+// helper func
+// concatenate two slices
 func concatenate(s1 []byte, s2 []byte) []byte {
 	var re []byte = s1
 	for i := 0; i < len(s2); i++ {
@@ -175,7 +104,7 @@ func SafeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 	//marshal to json text
 	plainText, err := json.Marshal(obj)
 	if err != nil {
-		return err
+		return errors.New("SafeSet() < " + err.Error() + " >")
 	}
 	//pad to block length
 	var padlen uint8 = uint8(AESBlockSize - len(plainText)%AESBlockSize)
@@ -192,7 +121,7 @@ func SafeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 	//C||MAC(C)
 	MAC, err := userlib.HMACEval(MACKey, cipherText)
 	if err != nil {
-		return err
+		return errors.New("SafeSet() < " + err.Error() + " >")
 	}
 	data := concatenate(cipherText, MAC)
 	//store data
@@ -206,10 +135,10 @@ func SafeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 	// fetch the data from Datastore
 	data, exist := userlib.DatastoreGet(addr)
 	if !exist {
-		return errors.New("data on Datastroe not found")
+		return errors.New("SafeGet(data on Datastroe not found)")
 	}
 	if len(data) <= MAClen {
-		return errors.New("data on Datastroe is modified")
+		return errors.New("SafeGet(data on Datastroe is modified)")
 	}
 
 	cipherText := data[:len(data)-MAClen]
@@ -221,7 +150,7 @@ func SafeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 		return err
 	}
 	if !userlib.HMACEqual(fMAC, sMAC) {
-		return errors.New("data on Datastore is modified")
+		return errors.New("SafeGet(data on Datastore is modified)")
 	}
 
 	// decrypt
@@ -237,267 +166,513 @@ func SafeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 	return err
 }
 
-// This creates a user.  It will only be called once for a user
-// (unless the keystore and datastore are cleared during testing purposes)
-
-// It should store a copy of the userdata, suitably encrypted, in the
-// datastore and should store the user's public key in the keystore.
-
-// The datastore may corrupt or completely erase the stored
-// information, but nobody outside should be able to get at the stored
-
-// You are not allowed to use any global storage other than the
-// keystore and the datastore functions in the userlib library.
-
-// You can assume the password has strong entropy, EXCEPT
-// the attackers may possess a precomputed tables containing
-// hashes of common passwords downloaded from the internet.
-func InitUser(username string, password string) (userdataptr *User, err error) {
-	// generare a-sym keys
-	PublicKey, PrivateKey, err := userlib.PKEKeyGen()
+// PtrSet set the obj at p.Addr using SafeSet()
+func PtrSet(p ptr, obj interface{}) error {
+	err := SafeSet(p.Addr, obj, p.CryptoKey, p.MACKey)
 	if err != nil {
-		return nil, err
+		return errors.New("PtrSet() < " + err.Error() + " >")
 	}
-
-	// store public key on Keystore
-	publicKeyAddr := userlib.Argon2Key([]byte(username), nil, 64)
-	err = userlib.KeystoreSet(hex.EncodeToString(publicKeyAddr), PublicKey)
-	if err != nil {
-		return nil, errors.New("username probabily been used" + err.Error())
-	}
-
-	// store user record to Datastore
-	// the addr
-	addr, err := uuid.FromBytes(userlib.Argon2Key([]byte(username), []byte(password), 16))
-	if err != nil {
-		return nil, err
-	}
-	// the encryption key
-	cryptoKey, err := userlib.HashKDF(
-		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
-		[]byte("RootCrypto"))
-	if err != nil {
-		return nil, err
-	}
-	cryptoKey = cryptoKey[:SymKeyLen]
-	// the MACKey
-	MACKey, err := userlib.HashKDF(
-		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
-		[]byte("RootMAC"))
-	if err != nil {
-		return nil, err
-	}
-	MACKey = MACKey[:SymKeyLen]
-
-	// set user and store to Dataset
-	user := User{username, password, PublicKey, PrivateKey, make(map[string]dirEntry), addr, cryptoKey, MACKey}
-	err = SafeSet(addr, user, cryptoKey, MACKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return &user, nil
-}
-
-// This fetches the user information from the Datastore.  It should
-// fail with an error if the user/password is invalid, or if the user
-// data was corrupted, or if the user can't be found.
-func GetUser(username string, password string) (userdataptr *User, err error) {
-	var user User
-	//addr
-	addr, err := uuid.FromBytes(userlib.Argon2Key([]byte(username), []byte(password), 16))
-	if err != nil {
-		return nil, err
-	}
-	// the encryption key
-	cryptoKey, err := userlib.HashKDF(
-		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
-		[]byte("RootCrypto"))
-	if err != nil {
-		return nil, err
-	}
-	cryptoKey = cryptoKey[:SymKeyLen]
-	// the MACKey
-	MACKey, err := userlib.HashKDF(
-		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
-		[]byte("RootMAC"))
-	if err != nil {
-		return nil, err
-	}
-	MACKey = MACKey[:SymKeyLen]
-
-	// get user to local
-	err = SafeGet(addr, &user, cryptoKey, MACKey)
-	if err != nil {
-		return nil, errors.New("user not found or username-password unmatch; " + err.Error())
-	}
-
-	//update user metadata
-	user.addr = addr
-	user.rootCryptoKey = cryptoKey
-	user.rootMACKey = MACKey
-
-	return &user, nil
-}
-
-// This stores a file in the datastore.
-//
-// The plaintext of the filename + the plaintext and length of the filename
-// should NOT be revealed to the datastore!
-func (user *User) StoreFile(filename string, data []byte) {
-	if _, ok := user.Dir[filename]; ok {
-		//file already exist
-		return
-	}
-
-	// init and set all index strcture
-	DirEntry := dirEntry{
-		DEown,
-		uuid.New(),
-		userlib.RandomBytes(SymKeyLen),
-		userlib.RandomBytes(SymKeyLen)}
-	user.Dir[filename] = DirEntry
-
-	FileNode := fileNode{
-		node{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)},
-		make(map[string]shareEntry)}
-	FileHeader := fileHeader{
-		uint(len(data)),
-		1,
-		make([]blockPtr, 1)}
-	BlockPtr := blockPtr{
-		uuid.New(),
-		userlib.RandomBytes(SymKeyLen),
-		userlib.RandomBytes(SymKeyLen)}
-	FileHeader.Blocks[0] = BlockPtr
-
-	// push to Datastore
-	SafeSet(user.addr, user, user.rootCryptoKey, user.rootMACKey)
-	SafeSet(DirEntry.NodeAddr, FileNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
-	SafeSet(FileNode.Node.FileHeaderAddr, FileHeader, FileNode.Node.FileHeaderCryptoKey, FileNode.Node.FileHeaderMACKey)
-	SafeSet(BlockPtr.BlockAddr, data, BlockPtr.BlockCryptoKey, BlockPtr.BlockMACKey)
-	return
-}
-
-// This adds on to an existing file.
-//
-// Append should be efficient, you shouldn't rewrite or reencrypt the
-// existing file, but only whatever additional information and
-// metadata you need.
-func (user *User) AppendFile(filename string, data []byte) (err error) {
-	//locally get DirEntry of "filename"
-	DirEntry, exist := user.Dir[filename]
-	if !exist {
-		return errors.New("filename not exist")
-	}
-
-	// remotely get Node depend on own/share
-	var Node node
-	if DirEntry.FileType == DEown {
-		var FileNode fileNode
-		err = SafeGet(DirEntry.NodeAddr, &FileNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
-		if err != nil {
-			return errors.New("AppendFile() fail to load FileNode; " + err.Error())
-		}
-		Node = FileNode.Node
-	} else if DirEntry.FileType == DEshare {
-		var ShareNode shareNode
-		err = SafeGet(DirEntry.NodeAddr, &ShareNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
-		if err != nil {
-			return errors.New("AppendFile() fail to load FileNode; " + err.Error())
-		}
-		Node = ShareNode.Node
-	}
-
-	// remotely get FileHeader
-	var FileHeader fileHeader
-	SafeGet(Node.FileHeaderAddr, &FileHeader, Node.FileHeaderCryptoKey, Node.FileHeaderMACKey)
-	if err != nil {
-		return errors.New("AppendFile() fail to load FileHeader; " + err.Error())
-	}
-
-	// set file header
-	BlockPtr := blockPtr{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)}
-	FileHeader.FileLength += uint(len(data))
-	FileHeader.BlockNum++
-	FileHeader.Blocks = append(FileHeader.Blocks, BlockPtr)
-
-	// put back on Datastore
-	SafeSet(Node.FileHeaderAddr, FileHeader, Node.FileHeaderCryptoKey, Node.FileHeaderMACKey)
-	SafeSet(BlockPtr.BlockAddr, data, BlockPtr.BlockCryptoKey, BlockPtr.BlockMACKey)
 	return nil
 }
 
-// This loads a file from the Datastore.
-//
-// It should give an error if the file is corrupted in any way.
-func (user *User) LoadFile(filename string) (data []byte, err error) {
+// PtrGet get the Obj at Ptr using SafeGet()
+func PtrGet(p ptr, obj interface{}) error {
+	err := SafeGet(p.Addr, obj, p.CryptoKey, p.MACKey)
+	if err != nil {
+		return errors.New("PtrGet() < " + err.Error() + " >")
+	}
+	return nil
+}
+
+// GenRootPtr generate addr of User, & its crypto, MAC key
+func genRootPtr(username string, password string) (ptr, error) {
+	// the addr
+	Addr, err := uuid.FromBytes(userlib.Argon2Key([]byte(username), []byte(password), 16))
+	if err != nil {
+		return ptr{}, errors.New("genRootPtr() < " + err.Error() + " >")
+	}
+	// encryption key
+	CryptoKey, err := userlib.HashKDF(
+		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
+		[]byte("RootCrypto"))
+	if err != nil {
+		return ptr{}, errors.New("genRootPtr() < " + err.Error() + " >")
+	}
+	CryptoKey = CryptoKey[:SymKeyLen]
+	// MACK ey
+	MACKey, err := userlib.HashKDF(
+		userlib.Argon2Key([]byte(password), []byte(username), SymKeyLen),
+		[]byte("RootMAC"))
+	if err != nil {
+		return ptr{}, errors.New("genRootPtr() < " + err.Error() + " >")
+	}
+	MACKey = MACKey[:SymKeyLen]
+
+	return ptr{Addr, CryptoKey, MACKey}, nil
+}
+
+func getPublic(username string) (userlib.PKEEncKey, userlib.DSVerifyKey, error) {
+	PublicKeyAddr := userlib.Argon2Key([]byte(username), []byte("PKE"), 64)
+	PublicKey, exist := userlib.KeystoreGet(hex.EncodeToString(PublicKeyAddr))
+	if !exist {
+		return userlib.PKEEncKey{}, userlib.DSVerifyKey{}, errors.New("getPublic(user not exist)")
+	}
+
+	VerifyKeyAddr := userlib.Argon2Key([]byte(username), []byte("DS"), 64)
+	VerifyKey, exist := userlib.KeystoreGet(hex.EncodeToString(VerifyKeyAddr))
+	if !exist {
+		return userlib.PKEEncKey{}, userlib.DSVerifyKey{}, errors.New("getPublic(user not exist)")
+	}
+	return PublicKey, VerifyKey, nil
+}
+
+// InitUser creates a user.  It will only be called once for a user
+// (unless the keystore and datastore are cleared during testing purposes)
+// It should store a copy of the userdata, suitably encrypted, in the
+// datastore and should store the user's public key in the keystore.
+// The datastore may corrupt or completely erase the stored
+// information, but nobody outside should be able to get at the stored
+// You are not allowed to use any global storage other than the
+// keystore and the datastore functions in the userlib library.
+// You can assume the password has strong entropy, EXCEPT
+// the attackers may possess a precomputed tables containing
+// hashes of common passwords downloaded from the internet.
+func InitUser(username string, password string) (Userdataptr *User, err error) {
+	// generare a-sym keys
+	PublicKey, PrivateKey, _ := userlib.PKEKeyGen()
+	SignKey, VerifyKey, _ := userlib.DSKeyGen()
+
+	// store public key on Keystore
+	PublicKeyAddr := userlib.Argon2Key([]byte(username), []byte("PKE"), 64)
+	err = userlib.KeystoreSet(hex.EncodeToString(PublicKeyAddr), PublicKey)
+	if err != nil {
+		return nil, errors.New("InitUser(username might been used) <" + err.Error() + ">")
+	}
+	// store verify key on Keystore
+	VerifyKeyAddr := userlib.Argon2Key([]byte(username), []byte("DS"), 64)
+	err = userlib.KeystoreSet(hex.EncodeToString(VerifyKeyAddr), VerifyKey)
+	if err != nil {
+		return nil, errors.New("InitUser(username might been used) <" + err.Error() + ">")
+	}
+
+	// store user record to Datastore
+	RootPtr, err := genRootPtr(username, password)
+	if err != nil {
+		return nil, errors.New("InitUser() < " + err.Error() + " >")
+	}
+
+	// set user and store to Dataset
+	user := User{PrivateKey, SignKey, make(map[string]ptr), username, password, RootPtr}
+	err = PtrSet(RootPtr, user)
+	if err != nil {
+		return nil, errors.New("InitUser() < " + err.Error() + " >")
+	}
+
+	return &user, nil
+}
+
+// GetUser fetches the user information from the Datastore.  It should
+// fail with an error if the user/password is invalid, or if the user
+// data was corrupted, or if the user can't be found.
+func GetUser(username string, password string) (UserData *User, err error) {
+	var Userdata User
+
+	RootPtr, err := genRootPtr(username, password)
+	if err != nil {
+		return nil, errors.New("genRootPtr(calcuate root ptr failed) < " + err.Error() + " >")
+	}
+
+	// get user to local
+	err = PtrGet(RootPtr, &Userdata)
+	if err != nil {
+		return nil, errors.New("genRootPtr(get from root ptr failed) < " + err.Error() + " >")
+	}
+
+	//update User private fields
+	Userdata.username = username
+	Userdata.password = password
+	Userdata.rootPtr = RootPtr
+
+	return &Userdata, nil
+}
+
+// StoreFile stores a file in the datastore.
+// The plaintext of the filename + the plaintext and length of the filename
+// should NOT be revealed to the datastore!
+func (UserData *User) StoreFile(filename string, data []byte) {
+	//file already exist
+	NodePtr, exist := UserData.Dir[filename]
+	if exist {
+		var FN fileNode
+		err := PtrGet(NodePtr, FN)
+		if err != nil {
+			return
+		}
+
+		var FH fileHeader
+		err = PtrGet(FN.HeaderPtr, FH)
+		if err != nil {
+			return
+		}
+
+		// remove all old blocks
+		for _, BlockPtr := range FH.BlockPtrs {
+			userlib.DatastoreDelete(BlockPtr.Addr)
+		}
+
+		// set new metadata
+		FH.FileLength = uint(len(data))
+		FH.BlockPtrs = []ptr{
+			ptr{
+				uuid.New(),
+				userlib.RandomBytes(SymKeyLen),
+				userlib.RandomBytes(SymKeyLen)}}
+
+		// update Datastore
+		err = PtrSet(FN.HeaderPtr, FH)
+		if err != nil {
+			return
+		}
+		err = PtrSet(FH.BlockPtrs[0], data)
+		if err != nil {
+			return
+		}
+		return
+	} else {
+		// init all index strcture
+		NodePtr = ptr{
+			uuid.New(),
+			userlib.RandomBytes(SymKeyLen),
+			userlib.RandomBytes(SymKeyLen)}
+		UserData.Dir[filename] = NodePtr
+
+		FN := fileNode{
+			NODE_own,
+			ptr{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)},
+			make(map[string]ptr)}
+
+		FH := fileHeader{
+			uint(len(data)),
+			[]ptr{
+				ptr{
+					uuid.New(),
+					userlib.RandomBytes(SymKeyLen),
+					userlib.RandomBytes(SymKeyLen)}}}
+
+		// Update Datastore
+		PtrSet(UserData.rootPtr, UserData)
+		PtrSet(NodePtr, FN)
+		PtrSet(FN.HeaderPtr, FH)
+		PtrSet(FH.BlockPtrs[0], data)
+		return
+	}
+}
+
+// AppendFile adds on to an existing file.
+// Append should be efficient, you shouldn't rewrite or reencrypt the
+// existing file, but only whatever additional information and
+// metadata you need.
+func (UserData *User) AppendFile(filename string, data []byte) (err error) {
 	//locally get DirEntry of "filename"
-	DirEntry, exist := user.Dir[filename]
+	NodePtr, exist := UserData.Dir[filename]
+	if !exist {
+		return errors.New("AppendFile(file not exist)")
+	}
+
+	// remotely get Node
+	var FN fileNode
+	err = PtrGet(NodePtr, &FN)
+	if err != nil {
+		return errors.New("AppendFile(fail to load fileNode) < " + err.Error() + " >")
+	}
+	if FN.State == NODE_pending {
+		return errors.New("Datastore inconsistant")
+	}
+	if FN.State == NODE_revoked {
+		userlib.DatastoreDelete(NodePtr.Addr)
+		delete(UserData.Dir, filename)
+		err = PtrSet(UserData.rootPtr, UserData)
+		if err != nil {
+			return errors.New("AppendFile(failed to remove revoked file entry in User) < " + err.Error() + " >")
+		}
+		return errors.New("AppendFile(NO permission to access a revoked file)")
+	}
+
+	// remotely get FileHeader
+	var FH fileHeader
+	err = PtrGet(FN.HeaderPtr, &FH)
+	if err != nil {
+		return errors.New("AppendFile(fail to load FileHeader) < " + err.Error() + " >")
+	}
+
+	// set file header
+	FH.FileLength += uint(len(data))
+	NewBlockPtr := ptr{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)}
+	FH.BlockPtrs = append(FH.BlockPtrs, NewBlockPtr)
+
+	// put back on Datastore
+	PtrSet(FN.HeaderPtr, FH)
+	PtrSet(NewBlockPtr, data)
+	return nil
+}
+
+// LoadFile loads a file from the Datastore.
+// It should give an error if the file is corrupted in any way.
+func (UserData *User) LoadFile(filename string) (data []byte, err error) {
+	//locally get DirEntry of "filename"
+	NodePtr, exist := UserData.Dir[filename]
 	if !exist {
 		return nil, errors.New("filename not exist")
 	}
 
-	// remotely get Node depend on own/share
-	var Node node
-	if DirEntry.FileType == DEown {
-		var FileNode fileNode
-		err = SafeGet(DirEntry.NodeAddr, &FileNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
+	// remotely get Node
+	var FN fileNode
+	err = PtrGet(NodePtr, &FN)
+	if err != nil {
+		return nil, errors.New("LoadFile(fail to load FileNode) < " + err.Error() + " >")
+	}
+	if FN.State == NODE_pending {
+		return nil, errors.New("Datastore inconsistant")
+	}
+	if FN.State == NODE_revoked {
+		userlib.DatastoreDelete(NodePtr.Addr)
+		delete(UserData.Dir, filename)
+		err = PtrSet(UserData.rootPtr, UserData)
 		if err != nil {
-			return nil, errors.New("LoadFile() fail to load FileNode; " + err.Error())
+			return nil, errors.New("LoadFile(failed to remove revoked file entry in User) < " + err.Error() + " >")
 		}
-		Node = FileNode.Node
-	} else if DirEntry.FileType == DEshare {
-		var ShareNode shareNode
-		err = SafeGet(DirEntry.NodeAddr, &ShareNode, DirEntry.NodeCryptoKey, DirEntry.NodeMACKey)
-		if err != nil {
-			return nil, errors.New("LoadFile() fail to load FileNode; " + err.Error())
-		}
-		Node = ShareNode.Node
+		return nil, errors.New("LoadFile(NO permission to access a revoked file)")
 	}
 
 	// remotely get FileHeader
-	var FileHeader fileHeader
-	SafeGet(Node.FileHeaderAddr, &FileHeader, Node.FileHeaderCryptoKey, Node.FileHeaderMACKey)
+	var FH fileHeader
+	err = PtrGet(FN.HeaderPtr, &FH)
 	if err != nil {
-		return nil, errors.New("LoadFile() fail to load FileHeader; " + err.Error())
+		return nil, errors.New("LoadFile(fail to load FileHeader) < " + err.Error() + " >")
 	}
 
 	// get the file data
 	var temp []byte
-	for i := 0; i < int(FileHeader.BlockNum); i++ {
-		BlockPtr := FileHeader.Blocks[i]
-		err = SafeGet(BlockPtr.BlockAddr, &temp, BlockPtr.BlockCryptoKey, BlockPtr.BlockMACKey)
+	for _, BlockPtr := range FH.BlockPtrs {
+		err = PtrGet(BlockPtr, &temp)
 		if err != nil {
-			return nil, errors.New("LoadFile() fail to load data blocks; " + err.Error())
+			return nil, errors.New("LoadFile(fail to load data blocks) < " + err.Error() + " >")
 		}
 		data = concatenate(data, temp)
 	}
 	return data, nil
 }
 
-// This creates a sharing record, which is a key pointing to something
-// in the datastore to share with the recipient.
+type token struct {
+	Msg  []byte
+	Sign []byte
+}
+type eptr struct {
+	EAddr      []byte
+	ECryptoKey []byte
+	EMACKey    []byte
+}
 
+func ptrTOeptr(p ptr, pubKey userlib.PKEEncKey) (eptr, error) {
+	// Addr
+	MAddr, err := json.Marshal(p.Addr)
+	if err != nil {
+		return eptr{}, errors.New("ptrTOeptr() < " + err.Error() + " >")
+	}
+	EAddr, err := userlib.PKEEnc(pubKey, MAddr)
+	if err != nil {
+		return eptr{}, errors.New("ptrTOeptr() < " + err.Error() + " >")
+	}
+	// CryptoKey
+	ECryptoKey, err := userlib.PKEEnc(pubKey, p.CryptoKey)
+	if err != nil {
+		return eptr{}, errors.New("ptrTOeptr() < " + err.Error() + " >")
+	}
+	// MAC key
+	EMACKey, err := userlib.PKEEnc(pubKey, p.MACKey)
+	if err != nil {
+		return eptr{}, errors.New("ptrTOeptr() < " + err.Error() + " >")
+	}
+
+	return eptr{EAddr, ECryptoKey, EMACKey}, nil
+}
+
+func eptrTOPtr(ep eptr, privKey userlib.PKEDecKey) (ptr, error) {
+	// Addr
+	MAddr, err := userlib.PKEDec(privKey, ep.EAddr)
+	if err != nil {
+		return ptr{}, errors.New("eptrTOptr() < " + err.Error() + " >")
+	}
+	var Addr uuid.UUID
+	err = json.Unmarshal(MAddr, &Addr)
+	if err != nil {
+		return ptr{}, errors.New("eptrTOptr() < " + err.Error() + " >")
+	}
+	// CryptoKey
+	CryptoKey, err := userlib.PKEDec(privKey, ep.ECryptoKey)
+	if err != nil {
+		return ptr{}, err
+	}
+	// MACKey
+	MACKey, err := userlib.PKEDec(privKey, ep.EMACKey)
+	if err != nil {
+		return ptr{}, err
+	}
+
+	return ptr{Addr, CryptoKey, MACKey}, nil
+}
+
+func eptrTOmbytes(ep eptr, sigKey userlib.DSSignKey) ([]byte, error) {
+	msg, err := json.Marshal(ep)
+	if err != nil {
+		return make([]byte, 0), errors.New("eptrTOmbyte() < " + err.Error() + " >")
+	}
+	sign, err := userlib.DSSign(sigKey, msg)
+	if err != nil {
+		return make([]byte, 0), errors.New("eptrTOmbyte() < " + err.Error() + " >")
+	}
+	mbytes, err := json.Marshal(token{msg, sign})
+	if err != nil {
+		return make([]byte, 0), errors.New("eptrTOmbyte() < " + err.Error() + " >")
+	}
+	return mbytes, nil
+}
+
+func mbytesTOeptr(mbytes []byte, verKey userlib.DSVerifyKey) (eptr, error) {
+	// unmarshal to token
+	var Token token
+	err := json.Unmarshal(mbytes, &Token)
+	if err != nil {
+		return eptr{}, errors.New("mbyteTOeptr() < " + err.Error() + " >")
+	}
+	// verify
+	err = userlib.DSVerify(verKey, Token.Msg, Token.Sign)
+	if err != nil {
+		return eptr{}, errors.New("mbyteTOeptr(MagicString modified) < " + err.Error() + " >")
+	}
+	// unmarshal to eptr
+	var Eptr eptr
+	err = json.Unmarshal(Token.Msg, &Eptr)
+	if err != nil {
+		return eptr{}, errors.New("mbyteTOeptr() < " + err.Error() + " >")
+	}
+
+	return Eptr, nil
+}
+
+// ShareFile creates a sharing record, which is a key pointing to something
+// in the datastore to share with the recipient.
 // This enables the recipient to access the encrypted file as well
 // for reading/appending.
-
 // Note that neither the recipient NOR the datastore should gain any
 // information about what the sender calls the file.  Only the
 // recipient can access the sharing record, and only the recipient
 // should be able to know the sender.
-func (userdata *User) ShareFile(filename string, recipient string) (
-	magic_string string, err error) {
+func (UserData *User) ShareFile(filename string, recipient string) (string, error) {
+	// locally get NodePtr of file
+	NodePtr, exist := UserData.Dir[filename]
+	if !exist {
+		return "", errors.New("ShareFile(file not exist)")
+	}
 
-	return
+	// new share record
+	ShareNodePtr := ptr{
+		uuid.New(),
+		userlib.RandomBytes(SymKeyLen),
+		userlib.RandomBytes(SymKeyLen)}
+
+	//add recipient:ShareNodePtr in FileNode.Sharing
+	var FN fileNode
+	err := PtrGet(NodePtr, &FN)
+	if err != nil {
+		return "", errors.New("ShareFile(fail to load FileNode) < " + err.Error() + ">")
+	}
+	switch FN.State {
+	case NODE_pending:
+		return "", errors.New("Datastore inconsistant")
+	case NODE_revoked:
+		userlib.DatastoreDelete(NodePtr.Addr)
+		delete(UserData.Dir, filename)
+		err = PtrSet(UserData.rootPtr, UserData)
+		if err != nil {
+			return "", errors.New("ShareFile(failed to remove revoked file entry in User) < " + err.Error() + " >")
+		}
+		return "", errors.New("ShareFile(NO permission to access a revoked file)")
+	}
+	if _, exist := FN.Sharing[recipient]; exist {
+		return "", errors.New("ShareFile(already shared file with recipient)")
+	}
+	FN.Sharing[recipient] = ShareNodePtr
+	err = PtrSet(NodePtr, FN)
+	if err != nil {
+		return "", errors.New("ShareFile(failed to add share entry in fileNode) < " + err.Error() + " >")
+	}
+
+	// init and set new ShareNode for this share relation
+	ShareNode := fileNode{
+		NODE_pending,
+		FN.HeaderPtr,
+		make(map[string]ptr)}
+	err = PtrSet(ShareNodePtr, ShareNode)
+	if err != nil {
+		return "", errors.New("ShareFile(failed to put ShareNode in Datastore) < " + err.Error() + " >")
+	}
+
+	// generate AccessToken
+	rePubKey, _, err := getPublic(recipient)
+	if err != nil {
+		return "", err
+	}
+	Eptr, err := ptrTOeptr(ShareNodePtr, rePubKey)
+	if err != nil {
+		return "", errors.New("ShareFile() < " + err.Error() + " >")
+	}
+	mBytes, err := eptrTOmbytes(Eptr, UserData.SignKey)
+	if err != nil {
+		return "", errors.New("ShareFile() < " + err.Error() + " >")
+	}
+
+	return string(mBytes), nil
 }
 
+// ReceiveFile :
 // Note recipient's filename can be different from the sender's filename.
 // The recipient should not be able to discover the sender's view on
 // what the filename even is!  However, the recipient must ensure that
 // it is authentically from the sender.
-func (userdata *User) ReceiveFile(filename string, sender string,
-	magic_string string) error {
+func (UserData *User) ReceiveFile(filename string, sender string, magicString string) error {
+	mBytes := []byte(magicString)
+	_, seVerify, err := getPublic(sender)
+	if err != nil {
+		return errors.New("ReceiveFile(\"sender\" may incorrect) < " + err.Error() + " >")
+	}
+
+	Eptr, err := mbytesTOeptr(mBytes, seVerify)
+	if err != nil {
+		return errors.New("ReceiveFile() < " + err.Error() + " >")
+	}
+	ShareNodePtr, err := eptrTOPtr(Eptr, UserData.PrivateKey)
+	if err != nil {
+		return errors.New("ReceiveFile() < " + err.Error() + " >")
+	}
+
+	// update ShareNode.State
+	var SN fileNode
+	err = PtrGet(ShareNodePtr, &SN)
+	if err != nil {
+		return errors.New("ReceiveFile(fail to get ShareNode) < " + err.Error() + " >")
+	}
+	SN.State = NODE_active
+	err = PtrSet(ShareNodePtr, SN)
+	if err != nil {
+		return errors.New("ReceiveFile(fail to update ShareNode.State to NODE_active) < " + err.Error() + " >")
+	}
+
+	UserData.Dir[filename] = ShareNodePtr
+	err = PtrSet(UserData.rootPtr, UserData)
+	if err != nil {
+		return errors.New("ReceiveFile(fail to update file entry in User) < " + err.Error() + " >")
+	}
 	return nil
 }
 

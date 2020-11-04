@@ -5,6 +5,7 @@ package proj2
 
 import (
 	_ "encoding/hex"
+	"encoding/json"
 	_ "encoding/json"
 	_ "errors"
 	"reflect"
@@ -337,4 +338,54 @@ func Test_6(t *testing.T) {
 		t.Error("Downloaded file is not the same", v, vp)
 		return
 	}
+}
+
+func Test_share(t *testing.T) {
+	clear()
+
+	alice, err := InitUser("alice", "foo")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	bob, err := InitUser("bob", "bar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	data := []byte("This is a test")
+	alice.StoreFile("file1", data)
+
+	msg, err := alice.ShareFile("file1", "bob")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = bob.ReceiveFile("file2", "alice", msg)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	file1, _ := alice.LoadFile("file1")
+	file2, _ := bob.LoadFile("file2")
+
+	if !reflect.DeepEqual(file1, file2) {
+		t.Error("share files are not the same", file1, file2)
+		return
+	}
+}
+
+func Test_f(t *testing.T) {
+	Pub, _, _ := userlib.PKEKeyGen()
+	addr := uuid.New()
+	P, _ := json.Marshal(addr)
+	_, err := userlib.PKEEnc(Pub, P)
+	if err != nil {
+		t.Error(err)
+	}
+	//t.Log(CipherText)
 }
