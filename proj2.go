@@ -709,6 +709,7 @@ func (UserData *User) RevokeFile(filename string, targetUsername string) (err er
 
 	// boardcast everyone the new fileHeader Ptr
 	FileNode.HeaderPtr = newFHPtr
+	delete(FileNode.Sharing, targetUsername)
 	err = ptrSet(UserData.Dir[filename], FileNode)
 	if err != nil {
 		return errors.New("RevokeFile(fail to update fileNode on new fileHeaderPtr) < " + err.Error() + " >")

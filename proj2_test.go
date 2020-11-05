@@ -271,10 +271,46 @@ func Test_LoadFile_2(t *testing.T) {
 	}
 }
 
+// 3 helper func to share and check share tree
+func share(sender *User, recipient *User) error {
+	msg, err := sender.ShareFile("file"+sender.username, recipient.username)
+	if err != nil {
+		return err
+	}
+	err = recipient.ReceiveFile("file"+recipient.username, sender.username, msg)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func checkShareTree(users []*User) bool {
+	for _, u := range users {
+		newData := userlib.RandomBytes(2)
+		u.StoreFile("file"+u.username, newData)
+		conData := userlib.RandomBytes(2)
+		u.AppendFile("file"+u.username, conData)
+		ok := checkConsist(users, cnct(newData, conData))
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func checkConsist(users []*User, expData []byte) bool {
+	for _, u := range users {
+		temp, _ := u.LoadFile("file" + u.username)
+		if !reflect.DeepEqual(temp, expData) {
+			return false
+		}
+	}
+	return true
+}
+
 func Test_ShareReceive_0(t *testing.T) {
 	clear()
 	t.Log("ShareFile() & Receive(): positive test")
-	userlib.SetDebugStatus(true)
 	/*
 		A
 		├── B
@@ -288,119 +324,38 @@ func Test_ShareReceive_0(t *testing.T) {
 	C, _ := InitUser("C", "c")
 	D, _ := InitUser("D", "d")
 	E, _ := InitUser("E", "e")
+	users := []*User{A, B, C, D, E}
 
 	data := []byte{0, 1, 2}
 	A.StoreFile("fileA", data)
 
-	A2B, err := A.ShareFile("fileA", "B")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	err = B.ReceiveFile("fileB", "A", A2B)
+	err := share(A, B)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	B2C, err := B.ShareFile("fileB", "C")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	err = C.ReceiveFile("fileC", "B", B2C)
+	err = share(B, C)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	B2D, err := B.ShareFile("fileB", "D")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	err = D.ReceiveFile("fileD", "B", B2D)
+	err = share(B, D)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	A2E, err := A.ShareFile("fileA", "E")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	err = E.ReceiveFile("fileE", "A", A2E)
+	err = share(A, E)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	dataA, _ := A.LoadFile("fileA")
-	dataB, _ := B.LoadFile("fileB")
-	dataC, _ := C.LoadFile("fileC")
-	dataD, _ := D.LoadFile("fileD")
-	dataE, _ := E.LoadFile("fileE")
-	if !reflect.DeepEqual(dataA, data) ||
-		!reflect.DeepEqual(dataB, data) ||
-		!reflect.DeepEqual(dataC, data) ||
-		!reflect.DeepEqual(dataD, data) ||
-		!reflect.DeepEqual(dataE, data) {
-		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
-		return
-	}
-
-	// A update the file
-	data = []byte{9, 10}
-	A.StoreFile("fileA", data)
-
-	dataA, _ = A.LoadFile("fileA")
-	dataB, _ = B.LoadFile("fileB")
-	dataC, _ = C.LoadFile("fileC")
-	dataD, _ = D.LoadFile("fileD")
-	dataE, _ = E.LoadFile("fileE")
-	if !reflect.DeepEqual(dataA, data) ||
-		!reflect.DeepEqual(dataB, data) ||
-		!reflect.DeepEqual(dataC, data) ||
-		!reflect.DeepEqual(dataD, data) ||
-		!reflect.DeepEqual(dataE, data) {
-		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
-		return
-	}
-
-	// B append the file
-	data = cnct(data, []byte{9, 10})
-	B.AppendFile("fileB", []byte{9, 10})
-
-	dataA, _ = A.LoadFile("fileA")
-	dataB, _ = B.LoadFile("fileB")
-	dataC, _ = C.LoadFile("fileC")
-	dataD, _ = D.LoadFile("fileD")
-	dataE, _ = E.LoadFile("fileE")
-	if !reflect.DeepEqual(dataA, data) ||
-		!reflect.DeepEqual(dataB, data) ||
-		!reflect.DeepEqual(dataC, data) ||
-		!reflect.DeepEqual(dataD, data) ||
-		!reflect.DeepEqual(dataE, data) {
-		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
-		return
-	}
-
-	// C update the file
-	data = []byte{11, 14}
-	C.StoreFile("fileC", data)
-
-	dataA, _ = A.LoadFile("fileA")
-	dataB, _ = B.LoadFile("fileB")
-	dataC, _ = C.LoadFile("fileC")
-	dataD, _ = D.LoadFile("fileD")
-	dataE, _ = E.LoadFile("fileE")
-	if !reflect.DeepEqual(dataA, data) ||
-		!reflect.DeepEqual(dataB, data) ||
-		!reflect.DeepEqual(dataC, data) ||
-		!reflect.DeepEqual(dataD, data) ||
-		!reflect.DeepEqual(dataE, data) {
-		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
+	ok := checkShareTree(users)
+	if !ok {
+		t.Error("share tree not ok")
 		return
 	}
 }
@@ -408,7 +363,6 @@ func Test_ShareReceive_0(t *testing.T) {
 func Test_ShareReceive_1(t *testing.T) {
 	clear()
 	t.Log("ShareFile() & Receive(): negative test")
-	userlib.SetDebugStatus(true)
 
 	A, _ := InitUser("A", "a")
 	B, _ := InitUser("B", "b")
@@ -446,101 +400,200 @@ func Test_ShareReceive_1(t *testing.T) {
 	}
 }
 
-func Test_revoke(t *testing.T) {
+func Test_Revoke_0(t *testing.T) {
 	clear()
-	t.Log("ShareFile() & Receive(): negative test")
-	userlib.SetDebugStatus(true)
-
-	A, err := InitUser("A", "a")
-	B, err := InitUser("B", "b")
-	C, err := InitUser("C", "c")
-	D, err := InitUser("D", "d")
+	t.Log("ShareFile() & Receive() & Revoke: simple Postive test")
+	/*
+		A
+		├── B
+		└── C
+	*/
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
 
 	data := []byte{0, 1}
 	A.StoreFile("fileA", data)
 
-	A2B, err := A.ShareFile("fileA", "B")
+	err := share(A, C)
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = B.ReceiveFile("fileB", "A", A2B)
+	ok := checkShareTree([]*User{A, C})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+
+	// share revoke share
+	err = share(A, B)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = A.RevokeFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	_, err = B.LoadFile("fileB")
+	if err == nil {
+		t.Error("revoked user load the file(should failed)")
+		return
+	}
+	err = B.AppendFile("fileB", []byte{1, 2})
+	if err == nil {
+		t.Error("revoked user append the file(should failed)")
+		return
+	}
+	err = share(A, B)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	ok = checkShareTree([]*User{A, C})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+}
+func Test_Revoke_1(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive() & Revoke: complex Postive test")
+	/*
+		A
+		├── B
+		│   └── C
+		│       ├── D
+		│       └── E
+		└── F
+		    ├── G
+		    │   └── H
+		    └── I
+	*/
+
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	D, _ := InitUser("D", "d")
+	E, _ := InitUser("E", "e")
+	F, _ := InitUser("F", "f")
+	G, _ := InitUser("G", "g")
+	H, _ := InitUser("H", "h")
+	I, _ := InitUser("I", "i")
+
+	data := []byte{0, 1}
+	A.StoreFile("fileA", data)
+
+	err := share(A, B)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	B2C, err := B.ShareFile("fileB", "C")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	err = C.ReceiveFile("fileC", "B", B2C)
+	err = share(B, C)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	A2D, err := A.ShareFile("fileA", "D")
+	err = share(C, D)
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = D.ReceiveFile("fileD", "A", A2D)
+	err = share(C, E)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(A, F)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(F, G)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(G, H)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(F, I)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	Adata, errA := A.LoadFile("fileA")
-	Bdata, errB := B.LoadFile("fileB")
-	Cdata, errC := C.LoadFile("fileC")
-	Ddata, errD := D.LoadFile("fileD")
-	if errA != nil || errB != nil || errD != nil {
-		t.Error(errA, errB, errC, errD)
-		return
-	}
-	if !reflect.DeepEqual(Adata, data) ||
-		!reflect.DeepEqual(Bdata, data) ||
-		!reflect.DeepEqual(Cdata, data) ||
-		!reflect.DeepEqual(Ddata, data) {
-		t.Error("share files are not the same", Adata, Bdata, Cdata, Ddata)
+	// check the current tree
+	ok := checkShareTree([]*User{A, B, C, D, E, F, G, H, I})
+	if !ok {
+		t.Error("share tree not ok")
 		return
 	}
 
-	A.RevokeFile("fileA", "B")
-	_, errB = B.LoadFile("fileB")
-	_, errC = C.LoadFile("fileC")
-	if errB == nil || errC == nil { // should failed
-		t.Error(errB, errC)
+	// revoke B
+	A.RevokeFile("fileA", "C")
+	ok = checkShareTree([]*User{A, F, G, H, I})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+}
+
+func Test_Revoke_2(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive() & Revoke: Negative test")
+	/*
+		A
+		├── B
+		└── C
+	*/
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	_, _ = InitUser("D", "d")
+
+	data := []byte{0, 1}
+	A.StoreFile("fileA", data)
+
+	err := share(A, B)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(A, C)
+	if err != nil {
+		t.Error(err)
 		return
 	}
 
-	data = cnct(data, []byte{2, 3})
-	D.AppendFile("fileD", []byte{2, 3})
-	Adata, errA = A.LoadFile("fileA")
-	Ddata, errD = D.LoadFile("fileD")
-	if errA != nil || errD != nil {
-		t.Error(errA, errD)
-		return
+	// revoke from no-exist user
+	err = A.RevokeFile("fileA", "not exist")
+	if err == nil {
+		t.Error("revoked a file from nobody(should failed)")
 	}
-	if !reflect.DeepEqual(Adata, data) ||
-		!reflect.DeepEqual(Ddata, data) {
-		t.Error("Shared file not equal")
-		return
+	// revoke from never shared user
+	err = A.RevokeFile("fileA", "D")
+	if err == nil {
+		t.Error("revoked a file from nobody(should failed)")
 	}
-
-	data = cnct(data, []byte{2, 3})
-	A.AppendFile("fileA", []byte{2, 3})
-	Adata, errA = A.LoadFile("fileA")
-	Ddata, errD = D.LoadFile("fileD")
-	if errA != nil || errD != nil {
-		t.Error(errA, errD)
-		return
+	// double revoke from same user
+	err = A.RevokeFile("fileA", "B")
+	if err != nil {
+		t.Error("fail to revoke a file from share user")
 	}
-	if !reflect.DeepEqual(Adata, data) ||
-		!reflect.DeepEqual(Ddata, data) {
-		t.Error("Shared file not equal", Adata, Ddata, data)
-		return
+	err = A.RevokeFile("fileA", "B")
+	if err == nil {
+		t.Error("double revoked a file from the same user(should failed)")
+	}
+	// try revoke from self
+	err = A.RevokeFile("fileA", "A")
+	if err == nil {
+		t.Error("revoked a shared file from self(should failed)")
 	}
 }
