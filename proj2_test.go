@@ -254,58 +254,19 @@ func Test_LoadFile_1(t *testing.T) {
 func Test_LoadFile_2(t *testing.T) {
 	clear()
 	t.Log("LoadFile(): modified Datastore")
-
-	{ // post-fix
-		u, _ := InitUser("alice", "password")
-		data := []byte{0, 1, 2, 3}
-		u.StoreFile("file", data)
-		{
-			dsMap := userlib.DatastoreGetMap()
-			for addr, val := range dsMap {
-				userlib.DatastoreSet(addr, cnct(val, userlib.RandomBytes(int(userlib.RandomBytes(1)[0]))))
-			}
-		}
-		_, err := u.LoadFile("file")
-		if err == nil {
-			t.Error("load file success (should failed)")
-			return
+	u, _ := InitUser("alice", "password")
+	data := []byte{0, 1, 2, 3}
+	u.StoreFile("file", data)
+	{
+		dsMap := userlib.DatastoreGetMap()
+		for addr := range dsMap {
+			userlib.DatastoreSet(addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
 		}
 	}
-
-	{ // pre-fix
-		clear()
-		u, _ := InitUser("alice", "password")
-		data := []byte{0, 1, 2, 3}
-		u.StoreFile("file", data)
-		{
-			dsMap := userlib.DatastoreGetMap()
-			for addr, val := range dsMap {
-				userlib.DatastoreSet(addr, cnct(userlib.RandomBytes(int(userlib.RandomBytes(1)[0])), val))
-			}
-		}
-		_, err := u.LoadFile("file")
-		if err == nil {
-			t.Error("load file success (should failed)")
-			return
-		}
-	}
-
-	{ // modify
-		clear()
-		u, _ := InitUser("alice", "password")
-		data := []byte{0, 1, 2, 3}
-		u.StoreFile("file", data)
-		{
-			dsMap := userlib.DatastoreGetMap()
-			for addr := range dsMap {
-				userlib.DatastoreSet(addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
-			}
-		}
-		_, err := u.LoadFile("file")
-		if err == nil {
-			t.Error("load file success (should failed)")
-			return
-		}
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
 	}
 }
 
