@@ -114,7 +114,7 @@ func Test_GetUser_2(t *testing.T) {
 
 func Test_GetUser_3(t *testing.T) {
 	clear()
-	t.Log("GetUser(): cleared Datastore")
+	t.Log("GetUser(): modified Datastore")
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
@@ -253,21 +253,59 @@ func Test_LoadFile_1(t *testing.T) {
 
 func Test_LoadFile_2(t *testing.T) {
 	clear()
-	t.Log("LoadFile(): cleared Datastore")
+	t.Log("LoadFile(): modified Datastore")
 
-	u, _ := InitUser("alice", "password")
-	data := []byte{0, 1, 2, 3}
-	u.StoreFile("file", data)
-	{
-		dsMap := userlib.DatastoreGetMap()
-		for addr := range dsMap {
-			userlib.DatastoreSet(addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
+	{ // post-fix
+		u, _ := InitUser("alice", "password")
+		data := []byte{0, 1, 2, 3}
+		u.StoreFile("file", data)
+		{
+			dsMap := userlib.DatastoreGetMap()
+			for addr, val := range dsMap {
+				userlib.DatastoreSet(addr, cnct(val, userlib.RandomBytes(int(userlib.RandomBytes(1)[0]))))
+			}
+		}
+		_, err := u.LoadFile("file")
+		if err == nil {
+			t.Error("load file success (should failed)")
+			return
 		}
 	}
-	_, err := u.LoadFile("file")
-	if err == nil {
-		t.Error("load file success (should failed)")
-		return
+
+	{ // pre-fix
+		clear()
+		u, _ := InitUser("alice", "password")
+		data := []byte{0, 1, 2, 3}
+		u.StoreFile("file", data)
+		{
+			dsMap := userlib.DatastoreGetMap()
+			for addr, val := range dsMap {
+				userlib.DatastoreSet(addr, cnct(userlib.RandomBytes(int(userlib.RandomBytes(1)[0])), val))
+			}
+		}
+		_, err := u.LoadFile("file")
+		if err == nil {
+			t.Error("load file success (should failed)")
+			return
+		}
+	}
+
+	{ // modify
+		clear()
+		u, _ := InitUser("alice", "password")
+		data := []byte{0, 1, 2, 3}
+		u.StoreFile("file", data)
+		{
+			dsMap := userlib.DatastoreGetMap()
+			for addr := range dsMap {
+				userlib.DatastoreSet(addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
+			}
+		}
+		_, err := u.LoadFile("file")
+		if err == nil {
+			t.Error("load file success (should failed)")
+			return
+		}
 	}
 }
 
@@ -385,6 +423,11 @@ func Test_ShareReceive_1(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	_, err = A.ShareFile("fileA", "B")
+	if err == nil {
+		t.Error("double sharing same file to same user(should failed)")
+		return
+	}
 	// incorect reciver
 	err = C.ReceiveFile("fileC", "A", A2B)
 	if err == nil {
@@ -395,6 +438,12 @@ func Test_ShareReceive_1(t *testing.T) {
 	err = B.ReceiveFile("fileB", "C", A2B)
 	if err == nil {
 		t.Error("reciving by incorrect sender parameter (should failed)")
+		return
+	}
+	// incorrect magic-string
+	err = A.ReceiveFile("fileB", "C", string(userlib.RandomBytes(int(userlib.RandomBytes(1)[0]))))
+	if err == nil {
+		t.Error("reciving ramdom msg (should failed)")
 		return
 	}
 }

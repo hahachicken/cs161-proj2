@@ -78,13 +78,13 @@ type User struct {
 	rootPtr  ptr
 }
 
-type fileNode struct {
+type node struct {
 	State     int
 	HeaderPtr ptr
 	Sharing   map[string]ptr
 }
 
-type fileHeader struct {
+type header struct {
 	FileLength uint
 	BlockPtrs  []ptr
 }
@@ -304,29 +304,29 @@ func GetUser(username string, password string) (UserData *User, err error) {
 	return &Userdata, nil
 }
 
-func (UserData *User) getNode(filename string) (fileNode, error) {
+func (UserData *User) getNode(filename string) (node, error) {
 	NodePtr, exist := UserData.Dir[filename]
 	if !exist {
-		return fileNode{}, errors.New("getNode(file not exist)")
+		return node{}, errors.New("getNode(file not exist)")
 	}
 
-	var FN fileNode
+	var FN node
 	err := ptrGet(NodePtr, &FN)
 	if err != nil {
-		return fileNode{}, errors.New("getNode(fail to load fileNode) < " + err.Error() + " >")
+		return node{}, errors.New("getNode(fail to load fileNode) < " + err.Error() + " >")
 	}
 
 	if FN.State == NODE_pending {
-		return fileNode{}, errors.New("Datastore inconsistant")
+		return node{}, errors.New("Datastore inconsistant")
 	}
 	if FN.State == NODE_revoked {
 		userlib.DatastoreDelete(NodePtr.Addr)
 		delete(UserData.Dir, filename)
 		err = ptrSet(UserData.rootPtr, UserData)
 		if err != nil {
-			return fileNode{}, errors.New("getNode(failed to remove revoked file entry in User) < " + err.Error() + " >")
+			return node{}, errors.New("getNode(failed to remove revoked file entry in User) < " + err.Error() + " >")
 		}
-		return fileNode{}, errors.New("getNode(NO permission to access a revoked file node)")
+		return node{}, errors.New("getNode(NO permission to access a revoked file node)")
 	}
 
 	return FN, nil
@@ -344,7 +344,7 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 			return
 		}
 
-		var FH fileHeader
+		var FH header
 		err = ptrGet(FN.HeaderPtr, &FH)
 		if err != nil {
 			return
@@ -376,12 +376,12 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 	NodePtr = newPtr()
 	UserData.Dir[filename] = NodePtr
 
-	FN := fileNode{
+	FN := node{
 		NODE_own,
 		newPtr(),
 		make(map[string]ptr)}
 
-	FH := fileHeader{
+	FH := header{
 		uint(len(data)),
 		[]ptr{newPtr()}}
 
@@ -404,7 +404,7 @@ func (UserData *User) AppendFile(filename string, data []byte) (err error) {
 	}
 
 	// remotely get FileHeader
-	var FH fileHeader
+	var FH header
 	err = ptrGet(FN.HeaderPtr, &FH)
 	if err != nil {
 		return errors.New("AppendFile(fail to load FileHeader) < " + err.Error() + " >")
@@ -430,7 +430,7 @@ func (UserData *User) LoadFile(filename string) (data []byte, err error) {
 	}
 
 	// remotely get FileHeader
-	var FH fileHeader
+	var FH header
 	err = ptrGet(FN.HeaderPtr, &FH)
 	if err != nil {
 		return nil, errors.New("LoadFile(fail to load FileHeader) < " + err.Error() + " >")
@@ -569,7 +569,7 @@ func (UserData *User) ShareFile(filename string, recipient string) (string, erro
 	}
 
 	// init and set new ShareNode for this share relation
-	ShareNode := fileNode{
+	ShareNode := node{
 		NODE_pending,
 		FN.HeaderPtr,
 		make(map[string]ptr)}
@@ -617,7 +617,7 @@ func (UserData *User) ReceiveFile(filename string, sender string, magicString st
 	}
 
 	// update ShareNode.State
-	var SN fileNode
+	var SN node
 	err = ptrGet(ShareNodePtr, &SN)
 	if err != nil {
 		return errors.New("ReceiveFile(fail to get ShareNode) < " + err.Error() + " >")
@@ -637,7 +637,7 @@ func (UserData *User) ReceiveFile(filename string, sender string, magicString st
 }
 
 func setRevoke(p ptr) error {
-	var Node fileNode
+	var Node node
 	err := ptrGet(p, &Node)
 	if err != nil {
 		return errors.New("setRevoke(fail to get the node) < " + err.Error() + " >")
@@ -665,7 +665,7 @@ func (UserData *User) RevokeFile(filename string, targetUsername string) (err er
 	if !exist {
 		return errors.New("RevokeFile(never shared this file with the user before)")
 	}
-	var directSN fileNode
+	var directSN node
 	err = ptrGet(directShareNodePtr, &directSN)
 	if !exist {
 		return errors.New("RevokeFile(fail to get direct shareNode) < " + err.Error() + " >")
@@ -684,7 +684,7 @@ func (UserData *User) RevokeFile(filename string, targetUsername string) (err er
 		return errors.New("RevokeFile(fail to get data) < " + err.Error() + " >")
 	}
 	// remove the file header and all data blocks
-	var oldFH fileHeader
+	var oldFH header
 	err = ptrGet(FileNode.HeaderPtr, &oldFH)
 	if err != nil {
 		return errors.New("RevokeFile(fail to get fileHeader) < " + err.Error() + " >")
@@ -696,7 +696,7 @@ func (UserData *User) RevokeFile(filename string, targetUsername string) (err er
 
 	// init and set new File Header
 	newFHPtr := newPtr()
-	newFH := fileHeader{uint(len(data)), []ptr{newPtr()}}
+	newFH := header{uint(len(data)), []ptr{newPtr()}}
 	err = ptrSet(newFHPtr, newFH)
 	if err != nil {
 		return errors.New("RevokeFile(fail to set new fileHeader) < " + err.Error() + " >")
@@ -720,12 +720,12 @@ func (UserData *User) RevokeFile(filename string, targetUsername string) (err er
 }
 
 // will boardcast self.HeaderPtr to all ShareNode pointted by self.Sharing
-func (Node *fileNode) boardcastShareNode_HeaderPtr() (err error) {
+func (Node *node) boardcastShareNode_HeaderPtr() (err error) {
 	if len(Node.Sharing) == 0 {
 		return nil
 	}
 	for _, SNptr := range Node.Sharing {
-		var SN fileNode
+		var SN node
 		err = ptrGet(SNptr, &SN)
 		if err != nil {
 			return errors.New("boardcastShareNode_HeaderPtr() < " + err.Error() + " >")
@@ -742,12 +742,12 @@ func (Node *fileNode) boardcastShareNode_HeaderPtr() (err error) {
 
 // will set all shareNode pointted by self.Sharing and their sub-shareNode to NODE_revoke
 // excludeing self
-func (Node *fileNode) boardcastShareNode_revoke() (err error) {
+func (Node *node) boardcastShareNode_revoke() (err error) {
 	if len(Node.Sharing) == 0 {
 		return nil
 	}
 	for _, SNptr := range Node.Sharing {
-		var SN fileNode
+		var SN node
 		err = ptrGet(SNptr, &SN)
 		if err != nil {
 			return errors.New("boardcastShareNode_revoke() < " + err.Error() + " >")
