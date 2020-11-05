@@ -272,25 +272,25 @@ func Test_LoadFile_2(t *testing.T) {
 }
 
 // 3 helper func to share and check share tree
-func share(sender *User, recipient *User) error {
-	msg, err := sender.ShareFile("file"+sender.username, recipient.username)
+func share(sender *User, senderUN string, recipient *User, recipientUN string) error {
+	msg, err := sender.ShareFile("file"+senderUN, recipientUN)
 	if err != nil {
 		return err
 	}
-	err = recipient.ReceiveFile("file"+recipient.username, sender.username, msg)
+	err = recipient.ReceiveFile("file"+recipientUN, senderUN, msg)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func checkShareTree(users []*User) bool {
-	for _, u := range users {
+func checkShareTree(users []*User, userUNs []string) bool {
+	for i, u := range users {
 		newData := userlib.RandomBytes(2)
-		u.StoreFile("file"+u.username, newData)
+		u.StoreFile("file"+userUNs[i], newData)
 		conData := userlib.RandomBytes(2)
-		u.AppendFile("file"+u.username, conData)
-		ok := checkConsist(users, cnct(newData, conData))
+		u.AppendFile("file"+userUNs[i], conData)
+		ok := checkConsist(users, userUNs, cnct(newData, conData))
 		if !ok {
 			return false
 		}
@@ -298,9 +298,9 @@ func checkShareTree(users []*User) bool {
 	return true
 }
 
-func checkConsist(users []*User, expData []byte) bool {
-	for _, u := range users {
-		temp, _ := u.LoadFile("file" + u.username)
+func checkConsist(users []*User, userUNs []string, expData []byte) bool {
+	for i, u := range users {
+		temp, _ := u.LoadFile("file" + userUNs[i])
 		if !reflect.DeepEqual(temp, expData) {
 			return false
 		}
@@ -324,36 +324,35 @@ func Test_ShareReceive_0(t *testing.T) {
 	C, _ := InitUser("C", "c")
 	D, _ := InitUser("D", "d")
 	E, _ := InitUser("E", "e")
-	users := []*User{A, B, C, D, E}
 
 	data := []byte{0, 1, 2}
 	A.StoreFile("fileA", data)
 
-	err := share(A, B)
+	err := share(A, "A", B, "B")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	err = share(B, C)
+	err = share(B, "B", C, "C")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	err = share(B, D)
+	err = share(B, "B", D, "D")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	err = share(A, E)
+	err = share(A, "A", E, "E")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	ok := checkShareTree(users)
+	ok := checkShareTree([]*User{A, B, C, D, E}, []string{"A", "B", "C", "D", "E"})
 	if !ok {
 		t.Error("share tree not ok")
 		return
@@ -415,19 +414,19 @@ func Test_Revoke_0(t *testing.T) {
 	data := []byte{0, 1}
 	A.StoreFile("fileA", data)
 
-	err := share(A, C)
+	err := share(A, "A", C, "C")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	ok := checkShareTree([]*User{A, C})
+	ok := checkShareTree([]*User{A, C}, []string{"A", "C"})
 	if !ok {
 		t.Error("share tree not ok")
 		return
 	}
 
 	// share revoke share
-	err = share(A, B)
+	err = share(A, "A", B, "B")
 	if err != nil {
 		t.Error(err)
 		return
@@ -447,12 +446,12 @@ func Test_Revoke_0(t *testing.T) {
 		t.Error("revoked user append the file(should failed)")
 		return
 	}
-	err = share(A, B)
+	err = share(A, "A", B, "B")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	ok = checkShareTree([]*User{A, C})
+	ok = checkShareTree([]*User{A, C}, []string{"A", "C"})
 	if !ok {
 		t.Error("share tree not ok")
 		return
@@ -486,51 +485,51 @@ func Test_Revoke_1(t *testing.T) {
 	data := []byte{0, 1}
 	A.StoreFile("fileA", data)
 
-	err := share(A, B)
+	err := share(A, "A", B, "B")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	err = share(B, C)
+	err = share(B, "B", C, "C")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	err = share(C, D)
+	err = share(C, "C", D, "D")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = share(C, E)
+	err = share(C, "C", E, "E")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = share(A, F)
+	err = share(A, "A", F, "F")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = share(F, G)
+	err = share(F, "F", G, "G")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = share(G, H)
+	err = share(G, "G", H, "H")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = share(F, I)
+	err = share(F, "F", I, "I")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	// check the current tree
-	ok := checkShareTree([]*User{A, B, C, D, E, F, G, H, I})
+	ok := checkShareTree([]*User{A, B, C, D, E, F, G, H, I}, []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"})
 	if !ok {
 		t.Error("share tree not ok")
 		return
@@ -538,7 +537,7 @@ func Test_Revoke_1(t *testing.T) {
 
 	// revoke B
 	A.RevokeFile("fileA", "C")
-	ok = checkShareTree([]*User{A, F, G, H, I})
+	ok = checkShareTree([]*User{A, F, G, H, I}, []string{"A", "F", "G", "H", "I"})
 	if !ok {
 		t.Error("share tree not ok")
 		return
@@ -550,8 +549,8 @@ func Test_Revoke_2(t *testing.T) {
 	t.Log("ShareFile() & Receive() & Revoke: Negative test")
 	/*
 		A
-		├── B
-		└── C
+		└── B
+		    └── C
 	*/
 	A, _ := InitUser("A", "a")
 	B, _ := InitUser("B", "b")
@@ -561,17 +560,22 @@ func Test_Revoke_2(t *testing.T) {
 	data := []byte{0, 1}
 	A.StoreFile("fileA", data)
 
-	err := share(A, B)
+	err := share(A, "A", B, "B")
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	err = share(A, C)
+	err = share(B, "B", C, "C")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
+	// revoke by non-owner user
+	err = B.RevokeFile("fileB", "C")
+	if err == nil {
+		t.Error("revoked a file from non-owner user(should failed)")
+	}
 	// revoke from no-exist user
 	err = A.RevokeFile("fileA", "not exist")
 	if err == nil {
