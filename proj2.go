@@ -99,6 +99,14 @@ func concatenate(s1 []byte, s2 []byte) []byte {
 	return re
 }
 
+// init a new random ptr
+func newPtr() ptr {
+	return ptr{
+		uuid.New(),
+		userlib.RandomBytes(SymKeyLen),
+		userlib.RandomBytes(SymKeyLen)}
+}
+
 // SafeSet do marshal(), enc(), MAC(), DatastroeSet(). return nil upon success
 func SafeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) error {
 	//marshal to json text
@@ -184,8 +192,8 @@ func PtrGet(p ptr, obj interface{}) error {
 	return nil
 }
 
-// GenRootPtr generate addr of User, & its crypto, MAC key
-func genRootPtr(username string, password string) (ptr, error) {
+// GenRootPtr compute addr, crypto, MAC key of User
+func rootPtr(username string, password string) (ptr, error) {
 	// the addr
 	Addr, err := uuid.FromBytes(userlib.Argon2Key([]byte(username), []byte(password), 16))
 	if err != nil {
@@ -256,7 +264,7 @@ func InitUser(username string, password string) (Userdataptr *User, err error) {
 	}
 
 	// store user record to Datastore
-	RootPtr, err := genRootPtr(username, password)
+	RootPtr, err := rootPtr(username, password)
 	if err != nil {
 		return nil, errors.New("InitUser() < " + err.Error() + " >")
 	}
@@ -277,7 +285,7 @@ func InitUser(username string, password string) (Userdataptr *User, err error) {
 func GetUser(username string, password string) (UserData *User, err error) {
 	var Userdata User
 
-	RootPtr, err := genRootPtr(username, password)
+	RootPtr, err := rootPtr(username, password)
 	if err != nil {
 		return nil, errors.New("genRootPtr(calcuate root ptr failed) < " + err.Error() + " >")
 	}
@@ -323,10 +331,7 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 		// set new metadata
 		FH.FileLength = uint(len(data))
 		FH.BlockPtrs = []ptr{
-			ptr{
-				uuid.New(),
-				userlib.RandomBytes(SymKeyLen),
-				userlib.RandomBytes(SymKeyLen)}}
+			newPtr()}
 
 		// update Datastore
 		err = PtrSet(FN.HeaderPtr, FH)
@@ -340,24 +345,17 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 		return
 	} else {
 		// init all index strcture
-		NodePtr = ptr{
-			uuid.New(),
-			userlib.RandomBytes(SymKeyLen),
-			userlib.RandomBytes(SymKeyLen)}
+		NodePtr = newPtr()
 		UserData.Dir[filename] = NodePtr
 
 		FN := fileNode{
 			NODE_own,
-			ptr{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)},
+			newPtr(),
 			make(map[string]ptr)}
 
 		FH := fileHeader{
 			uint(len(data)),
-			[]ptr{
-				ptr{
-					uuid.New(),
-					userlib.RandomBytes(SymKeyLen),
-					userlib.RandomBytes(SymKeyLen)}}}
+			[]ptr{newPtr()}}
 
 		// Update Datastore
 		PtrSet(UserData.rootPtr, UserData)
@@ -407,7 +405,7 @@ func (UserData *User) AppendFile(filename string, data []byte) (err error) {
 
 	// set file header
 	FH.FileLength += uint(len(data))
-	NewBlockPtr := ptr{uuid.New(), userlib.RandomBytes(SymKeyLen), userlib.RandomBytes(SymKeyLen)}
+	NewBlockPtr := newPtr()
 	FH.BlockPtrs = append(FH.BlockPtrs, NewBlockPtr)
 
 	// put back on Datastore
@@ -576,10 +574,7 @@ func (UserData *User) ShareFile(filename string, recipient string) (string, erro
 	}
 
 	// new share record
-	ShareNodePtr := ptr{
-		uuid.New(),
-		userlib.RandomBytes(SymKeyLen),
-		userlib.RandomBytes(SymKeyLen)}
+	ShareNodePtr := newPtr()
 
 	//add recipient:ShareNodePtr in FileNode.Sharing
 	var FN fileNode
@@ -678,5 +673,5 @@ func (UserData *User) ReceiveFile(filename string, sender string, magicString st
 
 // Removes target user's access.
 func (userdata *User) RevokeFile(filename string, target_username string) (err error) {
-	return
+	return nil
 }

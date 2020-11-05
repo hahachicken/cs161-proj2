@@ -5,7 +5,6 @@ package proj2
 
 import (
 	_ "encoding/hex"
-	"encoding/json"
 	_ "encoding/json"
 	_ "errors"
 	"reflect"
@@ -89,15 +88,10 @@ func TestShare(t *testing.T) {
 }
 */
 
-type T struct {
-	X int
-	Y string
-}
-
 func Test_helper_1(t *testing.T) {
 	t.Log("SafeSet() test")
 	userlib.SetDebugStatus(true)
-	err := SafeSet(uuid.New(), T{1, "Wei"}, userlib.RandomBytes(32), userlib.RandomBytes(32))
+	err := SafeSet(uuid.New(), "Great", userlib.RandomBytes(32), userlib.RandomBytes(32))
 	if err != nil {
 		t.Error()
 		return
@@ -110,10 +104,10 @@ func Test_helper_2(t *testing.T) {
 	addr := uuid.New()
 	MacKey := userlib.RandomBytes(SymKeyLen)
 	CrptoKey := userlib.RandomBytes(SymKeyLen)
-	putObj := T{1, "Great"}
+	putObj := "Great"
 
 	SafeSet(addr, putObj, CrptoKey, MacKey)
-	var reObj T
+	var reObj string
 	err := SafeGet(addr, &reObj, CrptoKey, MacKey)
 	if err != nil {
 		t.Error()
@@ -132,13 +126,13 @@ func Test_helper_3(t *testing.T) {
 	addr := uuid.New()
 	MacKey := userlib.RandomBytes(SymKeyLen)
 	CrptoKey := userlib.RandomBytes(SymKeyLen)
-	tempObj := T{1, "Great"}
+	tempObj := "Great"
 
 	{ //reset the datastore
 		userlib.DatastoreClear()
 		SafeSet(addr, tempObj, CrptoKey, MacKey)
 		userlib.DatastoreClear()
-		var re T
+		var re string
 		err := SafeGet(addr, &re, CrptoKey, MacKey)
 		if err == nil {
 			t.Error()
@@ -150,7 +144,7 @@ func Test_helper_3(t *testing.T) {
 		userlib.DatastoreClear()
 		SafeSet(addr, tempObj, CrptoKey, MacKey)
 		userlib.DatastoreSet(addr, userlib.RandomBytes(1))
-		var re T
+		var re string
 		err := SafeGet(addr, &re, CrptoKey, MacKey)
 		if err == nil {
 			t.Error()
@@ -161,7 +155,7 @@ func Test_helper_3(t *testing.T) {
 		userlib.DatastoreClear()
 		SafeSet(addr, tempObj, CrptoKey, MacKey)
 		userlib.DatastoreSet(addr, userlib.RandomBytes(64))
-		var re T
+		var re string
 		err := SafeGet(addr, &re, CrptoKey, MacKey)
 		if err == nil {
 			t.Error()
@@ -177,7 +171,7 @@ func Test_helper_3(t *testing.T) {
 			data = concatenate(data, userlib.RandomBytes(10))
 			userlib.DatastoreSet(addr, data)
 		}
-		var re T
+		var re string
 		err := SafeGet(addr, &re, CrptoKey, MacKey)
 		if err == nil {
 			t.Error()
@@ -379,13 +373,35 @@ func Test_share(t *testing.T) {
 	}
 }
 
-func Test_f(t *testing.T) {
-	Pub, _, _ := userlib.PKEKeyGen()
-	addr := uuid.New()
-	P, _ := json.Marshal(addr)
-	_, err := userlib.PKEEnc(Pub, P)
+func Test_share_2(t *testing.T) {
+	clear()
+
+	alice, err := InitUser("alice", "foo")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	bob, err := InitUser("bob", "bar")
+	if err != nil {
+		t.Error("Failed to initialize user", err)
+		return
+	}
+
+	data := []byte("This is a test")
+	alice.StoreFile("file1", data)
+
+	msg, err := alice.ShareFile("file1", "bob")
 	if err != nil {
 		t.Error(err)
+		return
 	}
-	//t.Log(CipherText)
+
+	msg = msg + "a"
+
+	err = bob.ReceiveFile("file2", "alice", msg)
+	if err == nil {
+		t.Error("should failed: " + err.Error())
+		return
+	}
 }
