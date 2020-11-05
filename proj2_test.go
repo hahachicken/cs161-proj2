@@ -114,7 +114,7 @@ func Test_GetUser_2(t *testing.T) {
 
 func Test_GetUser_3(t *testing.T) {
 	clear()
-	t.Log("GetUser(): modified Datastore")
+	t.Log("GetUser(): cleared Datastore")
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
@@ -253,7 +253,8 @@ func Test_LoadFile_1(t *testing.T) {
 
 func Test_LoadFile_2(t *testing.T) {
 	clear()
-	t.Log("LoadFile(): modified Datastore")
+	t.Log("LoadFile(): cleared Datastore")
+
 	u, _ := InitUser("alice", "password")
 	data := []byte{0, 1, 2, 3}
 	u.StoreFile("file", data)
@@ -382,11 +383,6 @@ func Test_ShareReceive_1(t *testing.T) {
 	A2B, err := A.ShareFile("fileA", "B")
 	if err != nil {
 		t.Error(err)
-		return
-	}
-	_, err = A.ShareFile("fileA", "B")
-	if err == nil {
-		t.Error("double sharing same file to same user(should failed)")
 		return
 	}
 	// incorect reciver
