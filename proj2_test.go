@@ -34,7 +34,6 @@ func cnct(s1 []byte, s2 []byte) []byte {
 func Test_InitUser_0(t *testing.T) {
 	clear()
 	t.Log("InitUser(): Postive test")
-	userlib.SetDebugStatus(true)
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
@@ -47,7 +46,6 @@ func Test_InitUser_0(t *testing.T) {
 func Test_InitUser_1(t *testing.T) {
 	clear()
 	t.Log("InitUser(): duplicate username")
-	userlib.SetDebugStatus(true)
 
 	_, err := InitUser("alice", "pass")
 	_, err = InitUser("alice", "word")
@@ -60,7 +58,6 @@ func Test_InitUser_1(t *testing.T) {
 func Test_GetUser_0(t *testing.T) {
 	clear()
 	t.Log("GetUser(): positive test")
-	userlib.SetDebugStatus(true)
 
 	old, err := InitUser("alice", "password")
 	if err != nil {
@@ -83,7 +80,6 @@ func Test_GetUser_0(t *testing.T) {
 func Test_GetUser_1(t *testing.T) {
 	clear()
 	t.Log("GetUser(): wrong password")
-	userlib.SetDebugStatus(true)
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
@@ -101,7 +97,6 @@ func Test_GetUser_1(t *testing.T) {
 func Test_GetUser_2(t *testing.T) {
 	clear()
 	t.Log("GetUser(): cleared Datastore")
-	userlib.SetDebugStatus(true)
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
@@ -120,7 +115,6 @@ func Test_GetUser_2(t *testing.T) {
 func Test_GetUser_3(t *testing.T) {
 	clear()
 	t.Log("GetUser(): cleared Datastore")
-	userlib.SetDebugStatus(true)
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
@@ -142,7 +136,6 @@ func Test_GetUser_3(t *testing.T) {
 func Test_StoreFile_0(t *testing.T) {
 	clear()
 	t.Log("StoreFile(): new file")
-	userlib.SetDebugStatus(true)
 
 	u, _ := InitUser("alice", "password")
 
@@ -169,7 +162,6 @@ func Test_StoreFile_0(t *testing.T) {
 func Test_StoreFile_1(t *testing.T) {
 	clear()
 	t.Log("StoreFile(): exist file")
-	userlib.SetDebugStatus(true)
 
 	u, _ := InitUser("alice", "password")
 
@@ -196,7 +188,6 @@ func Test_StoreFile_1(t *testing.T) {
 func Test_AppendFile_0(t *testing.T) {
 	clear()
 	t.Log("AppendFile(): positve test")
-	userlib.SetDebugStatus(true)
 
 	u, _ := InitUser("alice", "password")
 
@@ -221,7 +212,6 @@ func Test_AppendFile_0(t *testing.T) {
 func Test_AppendFile_1(t *testing.T) {
 	clear()
 	t.Log("AppendFile(): file not exist")
-	userlib.SetDebugStatus(true)
 
 	u, _ := InitUser("alice", "password")
 
@@ -236,7 +226,6 @@ func Test_AppendFile_1(t *testing.T) {
 func Test_LoadFile_0(t *testing.T) {
 	clear()
 	t.Log("LoadFile(): file not exist")
-	userlib.SetDebugStatus(true)
 
 	u, _ := InitUser("alice", "password")
 
@@ -250,7 +239,6 @@ func Test_LoadFile_0(t *testing.T) {
 func Test_LoadFile_1(t *testing.T) {
 	clear()
 	t.Log("LoadFile(): cleared Datastore")
-	userlib.SetDebugStatus(true)
 
 	u, _ := InitUser("alice", "password")
 	data := []byte{0, 1, 2, 3}
@@ -266,7 +254,6 @@ func Test_LoadFile_1(t *testing.T) {
 func Test_LoadFile_2(t *testing.T) {
 	clear()
 	t.Log("LoadFile(): cleared Datastore")
-	userlib.SetDebugStatus(true)
 
 	u, _ := InitUser("alice", "password")
 	data := []byte{0, 1, 2, 3}
@@ -529,7 +516,7 @@ func Test_revoke(t *testing.T) {
 		return
 	}
 
-	data = concatenate(data, []byte{2, 3})
+	data = cnct(data, []byte{2, 3})
 	D.AppendFile("fileD", []byte{2, 3})
 	Adata, errA = A.LoadFile("fileA")
 	Ddata, errD = D.LoadFile("fileD")
@@ -543,7 +530,7 @@ func Test_revoke(t *testing.T) {
 		return
 	}
 
-	data = concatenate(data, []byte{2, 3})
+	data = cnct(data, []byte{2, 3})
 	A.AppendFile("fileA", []byte{2, 3})
 	Adata, errA = A.LoadFile("fileA")
 	Ddata, errD = D.LoadFile("fileD")
