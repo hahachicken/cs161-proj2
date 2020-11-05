@@ -23,172 +23,20 @@ func clear() {
 	userlib.KeystoreClear()
 }
 
-/*
-func TestInvalidFile(t *testing.T) {
+func cnct(s1 []byte, s2 []byte) []byte {
+	var re []byte = s1
+	for i := 0; i < len(s2); i++ {
+		re = append(re, s2[i])
+	}
+	return re
+}
+
+func Test_InitUser_0(t *testing.T) {
 	clear()
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
-
-	_, err2 := u.LoadFile("this file does not exist")
-	if err2 == nil {
-		t.Error("Downloaded a ninexistent file", err2)
-		return
-	}
-}
-
-func TestShare(t *testing.T) {
-	clear()
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
-	u2, err2 := InitUser("bob", "foobar")
-	if err2 != nil {
-		t.Error("Failed to initialize bob", err2)
-		return
-	}
-
-	v := []byte("This is a test")
-	u.StoreFile("file1", v)
-
-	var v2 []byte
-	var magic_string string
-
-	v, err = u.LoadFile("file1")
-	if err != nil {
-		t.Error("Failed to download the file from alice", err)
-		return
-	}
-
-	magic_string, err = u.ShareFile("file1", "bob")
-	if err != nil {
-		t.Error("Failed to share the a file", err)
-		return
-	}
-	err = u2.ReceiveFile("file2", "alice", magic_string)
-	if err != nil {
-		t.Error("Failed to receive the share message", err)
-		return
-	}
-
-	v2, err = u2.LoadFile("file2")
-	if err != nil {
-		t.Error("Failed to download the file after sharing", err)
-		return
-	}
-	if !reflect.DeepEqual(v, v2) {
-		t.Error("Shared file is not the same", v, v2)
-		return
-	}
-
-}
-*/
-
-func Test_helper_1(t *testing.T) {
-	t.Log("SafeSet() test")
-	userlib.SetDebugStatus(true)
-	err := SafeSet(uuid.New(), "Great", userlib.RandomBytes(32), userlib.RandomBytes(32))
-	if err != nil {
-		t.Error()
-		return
-	}
-}
-
-func Test_helper_2(t *testing.T) {
-	t.Log("SafeGet() postive test")
-	userlib.SetDebugStatus(true)
-	addr := uuid.New()
-	MacKey := userlib.RandomBytes(SymKeyLen)
-	CrptoKey := userlib.RandomBytes(SymKeyLen)
-	putObj := "Great"
-
-	SafeSet(addr, putObj, CrptoKey, MacKey)
-	var reObj string
-	err := SafeGet(addr, &reObj, CrptoKey, MacKey)
-	if err != nil {
-		t.Error()
-		return
-	}
-	if !reflect.DeepEqual(putObj, reObj) {
-		t.Error()
-		return
-	}
-}
-
-func Test_helper_3(t *testing.T) {
-	t.Log("SafeGet() negative test")
+	t.Log("InitUser(): Postive test")
 	userlib.SetDebugStatus(true)
 
-	addr := uuid.New()
-	MacKey := userlib.RandomBytes(SymKeyLen)
-	CrptoKey := userlib.RandomBytes(SymKeyLen)
-	tempObj := "Great"
-
-	{ //reset the datastore
-		userlib.DatastoreClear()
-		SafeSet(addr, tempObj, CrptoKey, MacKey)
-		userlib.DatastoreClear()
-		var re string
-		err := SafeGet(addr, &re, CrptoKey, MacKey)
-		if err == nil {
-			t.Error()
-			return
-		}
-	}
-
-	{ //modify some bits
-		userlib.DatastoreClear()
-		SafeSet(addr, tempObj, CrptoKey, MacKey)
-		userlib.DatastoreSet(addr, userlib.RandomBytes(1))
-		var re string
-		err := SafeGet(addr, &re, CrptoKey, MacKey)
-		if err == nil {
-			t.Error()
-			return
-		}
-	}
-	{
-		userlib.DatastoreClear()
-		SafeSet(addr, tempObj, CrptoKey, MacKey)
-		userlib.DatastoreSet(addr, userlib.RandomBytes(64))
-		var re string
-		err := SafeGet(addr, &re, CrptoKey, MacKey)
-		if err == nil {
-			t.Error()
-			return
-		}
-	}
-
-	{ //padding some bits
-		userlib.DatastoreClear()
-		SafeSet(addr, tempObj, CrptoKey, MacKey)
-		{
-			data, _ := userlib.DatastoreGet(addr)
-			data = concatenate(data, userlib.RandomBytes(10))
-			userlib.DatastoreSet(addr, data)
-		}
-		var re string
-		err := SafeGet(addr, &re, CrptoKey, MacKey)
-		if err == nil {
-			t.Error()
-			return
-		}
-	}
-
-}
-
-func Test_1(t *testing.T) {
-	clear()
-	t.Log("InitUser() Postive test")
-
-	// You can set this to false!
-	userlib.SetDebugStatus(true)
-
-	_, err := InitUser("alice", "fubar")
+	_, err := InitUser("alice", "password")
 	if err != nil {
 		// t.Error says the test fails
 		t.Error("Failed to initialize user; ", err)
@@ -196,42 +44,33 @@ func Test_1(t *testing.T) {
 	}
 }
 
-func Test_2(t *testing.T) {
+func Test_InitUser_1(t *testing.T) {
 	clear()
-	t.Log("InitUser() negative test")
-
-	// You can set this to false!
+	t.Log("InitUser(): duplicate username")
 	userlib.SetDebugStatus(true)
 
-	_, err := InitUser("alice", "fubar")
-	_, err = InitUser("alice", "f")
+	_, err := InitUser("alice", "pass")
+	_, err = InitUser("alice", "word")
 	if err == nil {
-		// t.Error says the test fails
-		t.Error("successed to initialize user (should failed); ", err)
+		t.Error("successed to initialize user (should failed)")
 		return
 	}
-	// t.Log() only produces output if you run with "go test -v"
-	// t.Log("Got user", u)
 }
 
-func Test_3(t *testing.T) {
+func Test_GetUser_0(t *testing.T) {
 	clear()
-	t.Log("GetUser() positive test")
-
-	// You can set this to false!
+	t.Log("GetUser(): positive test")
 	userlib.SetDebugStatus(true)
 
 	old, err := InitUser("alice", "password")
 	if err != nil {
-		// t.Error says the test fails
-		t.Error("Failed to initialize user; ", err)
+		t.Error(err)
 		return
 	}
 
 	new, err := GetUser("alice", "password")
-
 	if err != nil {
-		t.Error("Fail to get user; ", err)
+		t.Error(err)
 		return
 	}
 
@@ -241,167 +80,480 @@ func Test_3(t *testing.T) {
 	}
 }
 
-func Test_4(t *testing.T) {
+func Test_GetUser_1(t *testing.T) {
 	clear()
-	t.Log("GetUser() negative test")
-
-	// You can set this to false!
+	t.Log("GetUser(): wrong password")
 	userlib.SetDebugStatus(true)
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
-		// t.Error says the test fails
-		t.Error("Failed to initialize user; ", err)
+		t.Error(err)
 		return
 	}
 
+	_, err = GetUser("alice", "PassWord")
+	if err == nil {
+		t.Error("get user success(should failed); ", err)
+		return
+	}
+}
+
+func Test_GetUser_2(t *testing.T) {
+	clear()
+	t.Log("GetUser(): cleared Datastore")
+	userlib.SetDebugStatus(true)
+
+	_, err := InitUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	clear()
 	_, err = GetUser("alice", "Password")
 	if err == nil {
 		t.Error("get user success(should failed); ", err)
 		return
 	}
+}
 
-	_, err = GetUser("Alice", "password")
+func Test_GetUser_3(t *testing.T) {
+	clear()
+	t.Log("GetUser(): cleared Datastore")
+	userlib.SetDebugStatus(true)
+
+	_, err := InitUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	{
+		Addr, _ := uuid.FromBytes(userlib.Argon2Key([]byte("alice"), []byte("password"), 16))
+		userlib.DatastoreSet(Addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
+	}
+
+	_, err = GetUser("alice", "password")
 	if err == nil {
-		t.Error("get user success(should failed);", err)
+		t.Error("get user success(should failed); ", err)
 		return
 	}
 }
 
-func Test_5(t *testing.T) {
+func Test_StoreFile_0(t *testing.T) {
 	clear()
-	t.Log("StoreFile() & LoadFile() postive test")
+	t.Log("StoreFile(): new file")
+	userlib.SetDebugStatus(true)
 
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
-
-	v := []byte("This is a test")
-	u.StoreFile("file1", v)
-
-	v2, err2 := u.LoadFile("file1")
-	if err2 != nil {
-		t.Error(err2)
-		return
-	}
-
-	v3, err3 := u.LoadFile("file1")
-	if err3 != nil {
-		t.Error(err3)
-		return
-	}
-
-	if !reflect.DeepEqual(v, v2) || !reflect.DeepEqual(v, v3) {
-		t.Error("Downloaded file is not the same", v, v2)
-		return
-	}
-}
-
-func Test_6(t *testing.T) {
-	clear()
-	t.Log("AppendFile() positve test")
-
-	u, err := InitUser("alice", "fubar")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
-
-	v1 := []byte("This is a test")
-	u.StoreFile("file1", v1)
-
-	v2 := []byte("This is append message")
-	u.AppendFile("file1", v2)
-
-	v := concatenate(v1, v2)
-
-	vp, err := u.LoadFile("file1")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	vpp, err := u.LoadFile("file1")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	if !reflect.DeepEqual(v, vp) || !reflect.DeepEqual(v, vpp) {
-		t.Error("Downloaded file is not the same", v, vp)
-		return
-	}
-}
-
-func Test_share(t *testing.T) {
-	clear()
-
-	alice, err := InitUser("alice", "foo")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
-
-	bob, err := InitUser("bob", "bar")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
+	u, _ := InitUser("alice", "password")
 
 	data := []byte("This is a test")
-	alice.StoreFile("file1", data)
+	u.StoreFile("file", data)
 
-	msg, err := alice.ShareFile("file1", "bob")
+	dataRE1, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	dataRE2, err := u.LoadFile("file")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	err = bob.ReceiveFile("file2", "alice", msg)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-
-	file1, _ := alice.LoadFile("file1")
-	file2, _ := bob.LoadFile("file2")
-
-	if !reflect.DeepEqual(file1, file2) {
-		t.Error("share files are not the same", file1, file2)
+	if !reflect.DeepEqual(data, dataRE1) || !reflect.DeepEqual(data, dataRE2) {
+		t.Error("Downloaded file is not the same", data, dataRE1, dataRE2)
 		return
 	}
 }
 
-func Test_share_2(t *testing.T) {
+func Test_StoreFile_1(t *testing.T) {
 	clear()
+	t.Log("StoreFile(): exist file")
+	userlib.SetDebugStatus(true)
 
-	alice, err := InitUser("alice", "foo")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
-
-	bob, err := InitUser("bob", "bar")
-	if err != nil {
-		t.Error("Failed to initialize user", err)
-		return
-	}
+	u, _ := InitUser("alice", "password")
 
 	data := []byte("This is a test")
-	alice.StoreFile("file1", data)
+	u.StoreFile("file", data)
 
-	msg, err := alice.ShareFile("file1", "bob")
+	dataRE1, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	dataRE2, err := u.LoadFile("file")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	msg = msg + "a"
+	if !reflect.DeepEqual(data, dataRE1) || !reflect.DeepEqual(data, dataRE2) {
+		t.Error("Downloaded file is not the same", data, dataRE1, dataRE2)
+		return
+	}
+}
 
-	err = bob.ReceiveFile("file2", "alice", msg)
+func Test_AppendFile_0(t *testing.T) {
+	clear()
+	t.Log("AppendFile(): positve test")
+	userlib.SetDebugStatus(true)
+
+	u, _ := InitUser("alice", "password")
+
+	data := []byte{0, 1}
+	u.StoreFile("file", data)
+
+	data = cnct(data, []byte{2, 3})
+	u.AppendFile("file", []byte{2, 3})
+
+	dataRE, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if !reflect.DeepEqual(data, dataRE) {
+		t.Error("Downloaded file is not the same", data, dataRE)
+		return
+	}
+}
+
+func Test_AppendFile_1(t *testing.T) {
+	clear()
+	t.Log("AppendFile(): file not exist")
+	userlib.SetDebugStatus(true)
+
+	u, _ := InitUser("alice", "password")
+
+	err := u.AppendFile("file", []byte{2, 3})
 	if err == nil {
-		t.Error("should failed: " + err.Error())
+		t.Error("append file success (should failed)")
+		return
+	}
+
+}
+
+func Test_LoadFile_0(t *testing.T) {
+	clear()
+	t.Log("LoadFile(): file not exist")
+	userlib.SetDebugStatus(true)
+
+	u, _ := InitUser("alice", "password")
+
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
+	}
+}
+
+func Test_LoadFile_1(t *testing.T) {
+	clear()
+	t.Log("LoadFile(): cleared Datastore")
+	userlib.SetDebugStatus(true)
+
+	u, _ := InitUser("alice", "password")
+	data := []byte{0, 1, 2, 3}
+	u.StoreFile("file", data)
+	clear()
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
+	}
+}
+
+func Test_LoadFile_2(t *testing.T) {
+	clear()
+	t.Log("LoadFile(): cleared Datastore")
+	userlib.SetDebugStatus(true)
+
+	u, _ := InitUser("alice", "password")
+	data := []byte{0, 1, 2, 3}
+	u.StoreFile("file", data)
+	{
+		dsMap := userlib.DatastoreGetMap()
+		for addr := range dsMap {
+			userlib.DatastoreSet(addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
+		}
+	}
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
+	}
+}
+
+func Test_ShareReceive_0(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive(): positive test")
+	userlib.SetDebugStatus(true)
+	/*
+		A
+		├── B
+		│   ├── C
+		│   └── D
+		└── E
+	*/
+
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	D, _ := InitUser("D", "d")
+	E, _ := InitUser("E", "e")
+
+	data := []byte{0, 1, 2}
+	A.StoreFile("fileA", data)
+
+	A2B, err := A.ShareFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = B.ReceiveFile("fileB", "A", A2B)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	B2C, err := B.ShareFile("fileB", "C")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = C.ReceiveFile("fileC", "B", B2C)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	B2D, err := B.ShareFile("fileB", "D")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = D.ReceiveFile("fileD", "B", B2D)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	A2E, err := A.ShareFile("fileA", "E")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = E.ReceiveFile("fileE", "A", A2E)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	dataA, _ := A.LoadFile("fileA")
+	dataB, _ := B.LoadFile("fileB")
+	dataC, _ := C.LoadFile("fileC")
+	dataD, _ := D.LoadFile("fileD")
+	dataE, _ := E.LoadFile("fileE")
+	if !reflect.DeepEqual(dataA, data) ||
+		!reflect.DeepEqual(dataB, data) ||
+		!reflect.DeepEqual(dataC, data) ||
+		!reflect.DeepEqual(dataD, data) ||
+		!reflect.DeepEqual(dataE, data) {
+		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
+		return
+	}
+
+	// A update the file
+	data = []byte{9, 10}
+	A.StoreFile("fileA", data)
+
+	dataA, _ = A.LoadFile("fileA")
+	dataB, _ = B.LoadFile("fileB")
+	dataC, _ = C.LoadFile("fileC")
+	dataD, _ = D.LoadFile("fileD")
+	dataE, _ = E.LoadFile("fileE")
+	if !reflect.DeepEqual(dataA, data) ||
+		!reflect.DeepEqual(dataB, data) ||
+		!reflect.DeepEqual(dataC, data) ||
+		!reflect.DeepEqual(dataD, data) ||
+		!reflect.DeepEqual(dataE, data) {
+		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
+		return
+	}
+
+	// B append the file
+	data = cnct(data, []byte{9, 10})
+	B.AppendFile("fileB", []byte{9, 10})
+
+	dataA, _ = A.LoadFile("fileA")
+	dataB, _ = B.LoadFile("fileB")
+	dataC, _ = C.LoadFile("fileC")
+	dataD, _ = D.LoadFile("fileD")
+	dataE, _ = E.LoadFile("fileE")
+	if !reflect.DeepEqual(dataA, data) ||
+		!reflect.DeepEqual(dataB, data) ||
+		!reflect.DeepEqual(dataC, data) ||
+		!reflect.DeepEqual(dataD, data) ||
+		!reflect.DeepEqual(dataE, data) {
+		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
+		return
+	}
+
+	// C update the file
+	data = []byte{11, 14}
+	C.StoreFile("fileC", data)
+
+	dataA, _ = A.LoadFile("fileA")
+	dataB, _ = B.LoadFile("fileB")
+	dataC, _ = C.LoadFile("fileC")
+	dataD, _ = D.LoadFile("fileD")
+	dataE, _ = E.LoadFile("fileE")
+	if !reflect.DeepEqual(dataA, data) ||
+		!reflect.DeepEqual(dataB, data) ||
+		!reflect.DeepEqual(dataC, data) ||
+		!reflect.DeepEqual(dataD, data) ||
+		!reflect.DeepEqual(dataE, data) {
+		t.Error("share files are not the same", data, dataA, dataB, dataC, dataD, dataE)
+		return
+	}
+}
+
+func Test_ShareReceive_1(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive(): negative test")
+	userlib.SetDebugStatus(true)
+
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	A.StoreFile("fileA", []byte{0})
+
+	_, err := A.ShareFile("not exist", "B")
+	if err == nil {
+		t.Error("sharing non-existing file (should failed)")
+		return
+	}
+
+	_, err = A.ShareFile("fileA", "non exist")
+	if err == nil {
+		t.Error("sharing to non-existing user (should failed)")
+		return
+	}
+
+	A2B, err := A.ShareFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	// incorect reciver
+	err = C.ReceiveFile("fileC", "A", A2B)
+	if err == nil {
+		t.Error("reciving by incorrect user (should failed)")
+		return
+	}
+	// incorrect sender parameter
+	err = B.ReceiveFile("fileB", "C", A2B)
+	if err == nil {
+		t.Error("reciving by incorrect sender parameter (should failed)")
+		return
+	}
+}
+
+func Test_revoke(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive(): negative test")
+	userlib.SetDebugStatus(true)
+
+	A, err := InitUser("A", "a")
+	B, err := InitUser("B", "b")
+	C, err := InitUser("C", "c")
+	D, err := InitUser("D", "d")
+
+	data := []byte{0, 1}
+	A.StoreFile("fileA", data)
+
+	A2B, err := A.ShareFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = B.ReceiveFile("fileB", "A", A2B)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	B2C, err := B.ShareFile("fileB", "C")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = C.ReceiveFile("fileC", "B", B2C)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	A2D, err := A.ShareFile("fileA", "D")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = D.ReceiveFile("fileD", "A", A2D)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	Adata, errA := A.LoadFile("fileA")
+	Bdata, errB := B.LoadFile("fileB")
+	Cdata, errC := C.LoadFile("fileC")
+	Ddata, errD := D.LoadFile("fileD")
+	if errA != nil || errB != nil || errD != nil {
+		t.Error(errA, errB, errC, errD)
+		return
+	}
+	if !reflect.DeepEqual(Adata, data) ||
+		!reflect.DeepEqual(Bdata, data) ||
+		!reflect.DeepEqual(Cdata, data) ||
+		!reflect.DeepEqual(Ddata, data) {
+		t.Error("share files are not the same", Adata, Bdata, Cdata, Ddata)
+		return
+	}
+
+	A.RevokeFile("fileA", "B")
+	_, errB = B.LoadFile("fileB")
+	_, errC = C.LoadFile("fileC")
+	if errB == nil || errC == nil { // should failed
+		t.Error(errB, errC)
+		return
+	}
+
+	data = concatenate(data, []byte{2, 3})
+	D.AppendFile("fileD", []byte{2, 3})
+	Adata, errA = A.LoadFile("fileA")
+	Ddata, errD = D.LoadFile("fileD")
+	if errA != nil || errD != nil {
+		t.Error(errA, errD)
+		return
+	}
+	if !reflect.DeepEqual(Adata, data) ||
+		!reflect.DeepEqual(Ddata, data) {
+		t.Error("Shared file not equal")
+		return
+	}
+
+	data = concatenate(data, []byte{2, 3})
+	A.AppendFile("fileA", []byte{2, 3})
+	Adata, errA = A.LoadFile("fileA")
+	Ddata, errD = D.LoadFile("fileD")
+	if errA != nil || errD != nil {
+		t.Error(errA, errD)
+		return
+	}
+	if !reflect.DeepEqual(Adata, data) ||
+		!reflect.DeepEqual(Ddata, data) {
+		t.Error("Shared file not equal", Adata, Ddata, data)
 		return
 	}
 }

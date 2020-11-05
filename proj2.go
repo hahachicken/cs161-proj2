@@ -108,7 +108,7 @@ func newPtr() ptr {
 }
 
 // SafeSet do marshal(), enc(), MAC(), DatastroeSet(). return nil upon success
-func SafeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) error {
+func safeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) error {
 	//marshal to json text
 	plainText, err := json.Marshal(obj)
 	if err != nil {
@@ -139,7 +139,7 @@ func SafeSet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 }
 
 // SafeGet do DatastroeGet(), check MAC(), dec(), un-marshal(). return nil upon success
-func SafeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) error {
+func safeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) error {
 	// fetch the data from Datastore
 	data, exist := userlib.DatastoreGet(addr)
 	if !exist {
@@ -175,8 +175,8 @@ func SafeGet(addr uuid.UUID, obj interface{}, cryptoKey []byte, MACKey []byte) e
 }
 
 // PtrSet set the obj at p.Addr using SafeSet()
-func PtrSet(p ptr, obj interface{}) error {
-	err := SafeSet(p.Addr, obj, p.CryptoKey, p.MACKey)
+func ptrSet(p ptr, obj interface{}) error {
+	err := safeSet(p.Addr, obj, p.CryptoKey, p.MACKey)
 	if err != nil {
 		return errors.New("PtrSet() < " + err.Error() + " >")
 	}
@@ -184,8 +184,8 @@ func PtrSet(p ptr, obj interface{}) error {
 }
 
 // PtrGet get the Obj at Ptr using SafeGet()
-func PtrGet(p ptr, obj interface{}) error {
-	err := SafeGet(p.Addr, obj, p.CryptoKey, p.MACKey)
+func ptrGet(p ptr, obj interface{}) error {
+	err := safeGet(p.Addr, obj, p.CryptoKey, p.MACKey)
 	if err != nil {
 		return errors.New("PtrGet() < " + err.Error() + " >")
 	}
@@ -271,7 +271,7 @@ func InitUser(username string, password string) (Userdataptr *User, err error) {
 
 	// set user and store to Dataset
 	user := User{PrivateKey, SignKey, make(map[string]ptr), username, password, RootPtr}
-	err = PtrSet(RootPtr, user)
+	err = ptrSet(RootPtr, user)
 	if err != nil {
 		return nil, errors.New("InitUser() < " + err.Error() + " >")
 	}
@@ -291,7 +291,7 @@ func GetUser(username string, password string) (UserData *User, err error) {
 	}
 
 	// get user to local
-	err = PtrGet(RootPtr, &Userdata)
+	err = ptrGet(RootPtr, &Userdata)
 	if err != nil {
 		return nil, errors.New("genRootPtr(get from root ptr failed) < " + err.Error() + " >")
 	}
@@ -304,6 +304,34 @@ func GetUser(username string, password string) (UserData *User, err error) {
 	return &Userdata, nil
 }
 
+func (UserData *User) getNode(filename string) (fileNode, error) {
+	NodePtr, exist := UserData.Dir[filename]
+	if !exist {
+		return fileNode{}, errors.New("getNode(file not exist)")
+	}
+
+	var FN fileNode
+	err := ptrGet(NodePtr, &FN)
+	if err != nil {
+		return fileNode{}, errors.New("getNode(fail to load fileNode) < " + err.Error() + " >")
+	}
+
+	if FN.State == NODE_pending {
+		return fileNode{}, errors.New("Datastore inconsistant")
+	}
+	if FN.State == NODE_revoked {
+		userlib.DatastoreDelete(NodePtr.Addr)
+		delete(UserData.Dir, filename)
+		err = ptrSet(UserData.rootPtr, UserData)
+		if err != nil {
+			return fileNode{}, errors.New("getNode(failed to remove revoked file entry in User) < " + err.Error() + " >")
+		}
+		return fileNode{}, errors.New("getNode(NO permission to access a revoked file node)")
+	}
+
+	return FN, nil
+}
+
 // StoreFile stores a file in the datastore.
 // The plaintext of the filename + the plaintext and length of the filename
 // should NOT be revealed to the datastore!
@@ -311,14 +339,13 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 	//file already exist
 	NodePtr, exist := UserData.Dir[filename]
 	if exist {
-		var FN fileNode
-		err := PtrGet(NodePtr, FN)
+		FN, err := UserData.getNode(filename)
 		if err != nil {
 			return
 		}
 
 		var FH fileHeader
-		err = PtrGet(FN.HeaderPtr, FH)
+		err = ptrGet(FN.HeaderPtr, &FH)
 		if err != nil {
 			return
 		}
@@ -328,42 +355,41 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 			userlib.DatastoreDelete(BlockPtr.Addr)
 		}
 
-		// set new metadata
+		// update fileHeader
 		FH.FileLength = uint(len(data))
 		FH.BlockPtrs = []ptr{
 			newPtr()}
-
-		// update Datastore
-		err = PtrSet(FN.HeaderPtr, FH)
+		err = ptrSet(FN.HeaderPtr, FH)
 		if err != nil {
 			return
 		}
-		err = PtrSet(FH.BlockPtrs[0], data)
+
+		// set data
+		err = ptrSet(FH.BlockPtrs[0], data)
 		if err != nil {
 			return
 		}
-		return
-	} else {
-		// init all index strcture
-		NodePtr = newPtr()
-		UserData.Dir[filename] = NodePtr
-
-		FN := fileNode{
-			NODE_own,
-			newPtr(),
-			make(map[string]ptr)}
-
-		FH := fileHeader{
-			uint(len(data)),
-			[]ptr{newPtr()}}
-
-		// Update Datastore
-		PtrSet(UserData.rootPtr, UserData)
-		PtrSet(NodePtr, FN)
-		PtrSet(FN.HeaderPtr, FH)
-		PtrSet(FH.BlockPtrs[0], data)
 		return
 	}
+	// it is new file
+	// init all index strcture
+	NodePtr = newPtr()
+	UserData.Dir[filename] = NodePtr
+
+	FN := fileNode{
+		NODE_own,
+		newPtr(),
+		make(map[string]ptr)}
+
+	FH := fileHeader{
+		uint(len(data)),
+		[]ptr{newPtr()}}
+
+	// Update Datastore
+	ptrSet(UserData.rootPtr, UserData)
+	ptrSet(NodePtr, FN)
+	ptrSet(FN.HeaderPtr, FH)
+	ptrSet(FH.BlockPtrs[0], data)
 }
 
 // AppendFile adds on to an existing file.
@@ -372,33 +398,14 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 // metadata you need.
 func (UserData *User) AppendFile(filename string, data []byte) (err error) {
 	//locally get DirEntry of "filename"
-	NodePtr, exist := UserData.Dir[filename]
-	if !exist {
-		return errors.New("AppendFile(file not exist)")
-	}
-
-	// remotely get Node
-	var FN fileNode
-	err = PtrGet(NodePtr, &FN)
+	FN, err := UserData.getNode(filename)
 	if err != nil {
-		return errors.New("AppendFile(fail to load fileNode) < " + err.Error() + " >")
-	}
-	if FN.State == NODE_pending {
-		return errors.New("Datastore inconsistant")
-	}
-	if FN.State == NODE_revoked {
-		userlib.DatastoreDelete(NodePtr.Addr)
-		delete(UserData.Dir, filename)
-		err = PtrSet(UserData.rootPtr, UserData)
-		if err != nil {
-			return errors.New("AppendFile(failed to remove revoked file entry in User) < " + err.Error() + " >")
-		}
-		return errors.New("AppendFile(NO permission to access a revoked file)")
+		return errors.New("AppendFile(fail to get Node) < " + err.Error() + " >")
 	}
 
 	// remotely get FileHeader
 	var FH fileHeader
-	err = PtrGet(FN.HeaderPtr, &FH)
+	err = ptrGet(FN.HeaderPtr, &FH)
 	if err != nil {
 		return errors.New("AppendFile(fail to load FileHeader) < " + err.Error() + " >")
 	}
@@ -409,42 +416,22 @@ func (UserData *User) AppendFile(filename string, data []byte) (err error) {
 	FH.BlockPtrs = append(FH.BlockPtrs, NewBlockPtr)
 
 	// put back on Datastore
-	PtrSet(FN.HeaderPtr, FH)
-	PtrSet(NewBlockPtr, data)
+	ptrSet(FN.HeaderPtr, FH)
+	ptrSet(NewBlockPtr, data)
 	return nil
 }
 
 // LoadFile loads a file from the Datastore.
 // It should give an error if the file is corrupted in any way.
 func (UserData *User) LoadFile(filename string) (data []byte, err error) {
-	//locally get DirEntry of "filename"
-	NodePtr, exist := UserData.Dir[filename]
-	if !exist {
-		return nil, errors.New("filename not exist")
-	}
-
-	// remotely get Node
-	var FN fileNode
-	err = PtrGet(NodePtr, &FN)
+	FN, err := UserData.getNode(filename)
 	if err != nil {
-		return nil, errors.New("LoadFile(fail to load FileNode) < " + err.Error() + " >")
-	}
-	if FN.State == NODE_pending {
-		return nil, errors.New("Datastore inconsistant")
-	}
-	if FN.State == NODE_revoked {
-		userlib.DatastoreDelete(NodePtr.Addr)
-		delete(UserData.Dir, filename)
-		err = PtrSet(UserData.rootPtr, UserData)
-		if err != nil {
-			return nil, errors.New("LoadFile(failed to remove revoked file entry in User) < " + err.Error() + " >")
-		}
-		return nil, errors.New("LoadFile(NO permission to access a revoked file)")
+		return nil, errors.New("LoadFile(fail to get Node) < " + err.Error() + " >")
 	}
 
 	// remotely get FileHeader
 	var FH fileHeader
-	err = PtrGet(FN.HeaderPtr, &FH)
+	err = ptrGet(FN.HeaderPtr, &FH)
 	if err != nil {
 		return nil, errors.New("LoadFile(fail to load FileHeader) < " + err.Error() + " >")
 	}
@@ -452,7 +439,7 @@ func (UserData *User) LoadFile(filename string) (data []byte, err error) {
 	// get the file data
 	var temp []byte
 	for _, BlockPtr := range FH.BlockPtrs {
-		err = PtrGet(BlockPtr, &temp)
+		err = ptrGet(BlockPtr, &temp)
 		if err != nil {
 			return nil, errors.New("LoadFile(fail to load data blocks) < " + err.Error() + " >")
 		}
@@ -567,40 +554,18 @@ func mbytesTOeptr(mbytes []byte, verKey userlib.DSVerifyKey) (eptr, error) {
 // recipient can access the sharing record, and only the recipient
 // should be able to know the sender.
 func (UserData *User) ShareFile(filename string, recipient string) (string, error) {
-	// locally get NodePtr of file
-	NodePtr, exist := UserData.Dir[filename]
-	if !exist {
-		return "", errors.New("ShareFile(file not exist)")
-	}
-
-	// new share record
-	ShareNodePtr := newPtr()
-
-	//add recipient:ShareNodePtr in FileNode.Sharing
-	var FN fileNode
-	err := PtrGet(NodePtr, &FN)
+	FN, err := UserData.getNode(filename)
 	if err != nil {
-		return "", errors.New("ShareFile(fail to load FileNode) < " + err.Error() + ">")
+		return "", errors.New("ShareFile(fail to get Node) < " + err.Error() + " >")
 	}
-	switch FN.State {
-	case NODE_pending:
-		return "", errors.New("Datastore inconsistant")
-	case NODE_revoked:
-		userlib.DatastoreDelete(NodePtr.Addr)
-		delete(UserData.Dir, filename)
-		err = PtrSet(UserData.rootPtr, UserData)
-		if err != nil {
-			return "", errors.New("ShareFile(failed to remove revoked file entry in User) < " + err.Error() + " >")
-		}
-		return "", errors.New("ShareFile(NO permission to access a revoked file)")
-	}
+
 	if _, exist := FN.Sharing[recipient]; exist {
 		return "", errors.New("ShareFile(already shared file with recipient)")
 	}
-	FN.Sharing[recipient] = ShareNodePtr
-	err = PtrSet(NodePtr, FN)
+	FN.Sharing[recipient] = newPtr()
+	err = ptrSet(UserData.Dir[filename], FN)
 	if err != nil {
-		return "", errors.New("ShareFile(failed to add share entry in fileNode) < " + err.Error() + " >")
+		return "", errors.New("ShareFile(failed to add share entry in fineNode) < " + err.Error() + " >")
 	}
 
 	// init and set new ShareNode for this share relation
@@ -608,7 +573,7 @@ func (UserData *User) ShareFile(filename string, recipient string) (string, erro
 		NODE_pending,
 		FN.HeaderPtr,
 		make(map[string]ptr)}
-	err = PtrSet(ShareNodePtr, ShareNode)
+	err = ptrSet(FN.Sharing[recipient], ShareNode)
 	if err != nil {
 		return "", errors.New("ShareFile(failed to put ShareNode in Datastore) < " + err.Error() + " >")
 	}
@@ -618,7 +583,7 @@ func (UserData *User) ShareFile(filename string, recipient string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	Eptr, err := ptrTOeptr(ShareNodePtr, rePubKey)
+	Eptr, err := ptrTOeptr(FN.Sharing[recipient], rePubKey)
 	if err != nil {
 		return "", errors.New("ShareFile() < " + err.Error() + " >")
 	}
@@ -653,25 +618,145 @@ func (UserData *User) ReceiveFile(filename string, sender string, magicString st
 
 	// update ShareNode.State
 	var SN fileNode
-	err = PtrGet(ShareNodePtr, &SN)
+	err = ptrGet(ShareNodePtr, &SN)
 	if err != nil {
 		return errors.New("ReceiveFile(fail to get ShareNode) < " + err.Error() + " >")
 	}
 	SN.State = NODE_active
-	err = PtrSet(ShareNodePtr, SN)
+	err = ptrSet(ShareNodePtr, SN)
 	if err != nil {
 		return errors.New("ReceiveFile(fail to update ShareNode.State to NODE_active) < " + err.Error() + " >")
 	}
 
 	UserData.Dir[filename] = ShareNodePtr
-	err = PtrSet(UserData.rootPtr, UserData)
+	err = ptrSet(UserData.rootPtr, UserData)
 	if err != nil {
 		return errors.New("ReceiveFile(fail to update file entry in User) < " + err.Error() + " >")
 	}
 	return nil
 }
 
-// Removes target user's access.
-func (userdata *User) RevokeFile(filename string, target_username string) (err error) {
+func setRevoke(p ptr) error {
+	var Node fileNode
+	err := ptrGet(p, &Node)
+	if err != nil {
+		return errors.New("setRevoke(fail to get the node) < " + err.Error() + " >")
+	}
+	Node.State = NODE_revoked
+	err = ptrSet(p, Node)
+	if err != nil {
+		return errors.New("setRevoke(faile to update the node) < " + err.Error() + " >")
+	}
+	return nil
+}
+
+// RevokeFile : Removes target user's access.
+func (UserData *User) RevokeFile(filename string, targetUsername string) (err error) {
+	FileNode, err := UserData.getNode(filename)
+	if err != nil {
+		return errors.New("RevokeFile(faile to get node) < " + err.Error() + " >")
+	}
+	if FileNode.State != NODE_own {
+		return errors.New("RevokeFile(not the owner of the file)")
+	}
+
+	// start invalidating the target shareNode and its sub-shareNodes
+	directShareNodePtr, exist := FileNode.Sharing[targetUsername]
+	if !exist {
+		return errors.New("RevokeFile(never shared this file with the user before)")
+	}
+	var directSN fileNode
+	err = ptrGet(directShareNodePtr, &directSN)
+	if !exist {
+		return errors.New("RevokeFile(fail to get direct shareNode) < " + err.Error() + " >")
+	}
+	directSN.State = NODE_revoked
+	ptrSet(directShareNodePtr, directSN)
+	err = directSN.boardcastShareNode_revoke()
+	if !exist {
+		return errors.New("RevokeFile(fail to invalidate all shareNode) < " + err.Error() + " >")
+	}
+
+	// start moving file to a new place
+	// get data
+	data, err := UserData.LoadFile(filename)
+	if err != nil {
+		return errors.New("RevokeFile(fail to get data) < " + err.Error() + " >")
+	}
+	// remove the file header and all data blocks
+	var oldFH fileHeader
+	err = ptrGet(FileNode.HeaderPtr, &oldFH)
+	if err != nil {
+		return errors.New("RevokeFile(fail to get fileHeader) < " + err.Error() + " >")
+	}
+	for _, BlockPtr := range oldFH.BlockPtrs {
+		userlib.DatastoreDelete(BlockPtr.Addr) // delete data
+	}
+	userlib.DatastoreDelete(FileNode.HeaderPtr.Addr) // delete old fileHeader
+
+	// init and set new File Header
+	newFHPtr := newPtr()
+	newFH := fileHeader{uint(len(data)), []ptr{newPtr()}}
+	err = ptrSet(newFHPtr, newFH)
+	if err != nil {
+		return errors.New("RevokeFile(fail to set new fileHeader) < " + err.Error() + " >")
+	}
+	// set data to new place
+	err = ptrSet(newFH.BlockPtrs[0], data)
+	if err != nil {
+		return errors.New("RevokeFile(fail to move data) < " + err.Error() + " >")
+	}
+
+	// boardcast everyone the new fileHeader Ptr
+	FileNode.HeaderPtr = newFHPtr
+	err = ptrSet(UserData.Dir[filename], FileNode)
+	if err != nil {
+		return errors.New("RevokeFile(fail to update fileNode on new fileHeaderPtr) < " + err.Error() + " >")
+	}
+	err = FileNode.boardcastShareNode_HeaderPtr()
+
+	return nil
+}
+
+// will boardcast self.HeaderPtr to all ShareNode pointted by self.Sharing
+func (Node *fileNode) boardcastShareNode_HeaderPtr() (err error) {
+	if len(Node.Sharing) == 0 {
+		return nil
+	}
+	for _, SNptr := range Node.Sharing {
+		var SN fileNode
+		err = ptrGet(SNptr, &SN)
+		if err != nil {
+			return errors.New("boardcastShareNode_HeaderPtr() < " + err.Error() + " >")
+		}
+		SN.HeaderPtr = Node.HeaderPtr
+		err = ptrSet(SNptr, SN)
+		if err != nil {
+			return errors.New("boardcastShareNode_HeaderPtr() < " + err.Error() + " >")
+		}
+		SN.boardcastShareNode_HeaderPtr()
+	}
+	return nil
+}
+
+// will set all shareNode pointted by self.Sharing and their sub-shareNode to NODE_revoke
+// excludeing self
+func (Node *fileNode) boardcastShareNode_revoke() (err error) {
+	if len(Node.Sharing) == 0 {
+		return nil
+	}
+	for _, SNptr := range Node.Sharing {
+		var SN fileNode
+		err = ptrGet(SNptr, &SN)
+		if err != nil {
+			return errors.New("boardcastShareNode_revoke() < " + err.Error() + " >")
+		}
+		SN.State = NODE_revoked
+		err = ptrSet(SNptr, SN)
+		if err != nil {
+			return errors.New("boardcastShareNode_revoke() < " + err.Error() + " >")
+		}
+		SN.boardcastShareNode_revoke()
+	}
 	return nil
 }
