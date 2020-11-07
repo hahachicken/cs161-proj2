@@ -304,14 +304,26 @@ func GetUser(username string, password string) (UserData *User, err error) {
 	return &Userdata, nil
 }
 
+func (UserData *User) syncUser() error {
+	err := ptrGet(UserData.rootPtr, &UserData)
+	if err != nil {
+		return errors.New("syncUser() < " + err.Error() + " >")
+	}
+	return nil
+}
+
 func (UserData *User) getNode(filename string) (node, error) {
+	err := UserData.syncUser()
+	if err != nil {
+		return node{}, errors.New("getNode(failed to update user) < " + err.Error() + " >")
+	}
 	NodePtr, exist := UserData.Dir[filename]
 	if !exist {
 		return node{}, errors.New("getNode(file not exist)")
 	}
 
 	var FN node
-	err := ptrGet(NodePtr, &FN)
+	err = ptrGet(NodePtr, &FN)
 	if err != nil {
 		return node{}, errors.New("getNode(fail to load fileNode) < " + err.Error() + " >")
 	}
@@ -336,7 +348,15 @@ func (UserData *User) getNode(filename string) (node, error) {
 // The plaintext of the filename + the plaintext and length of the filename
 // should NOT be revealed to the datastore!
 func (UserData *User) StoreFile(filename string, data []byte) {
+	err := UserData.syncUser()
+	if err != nil {
+		return
+	}
 	//file already exist
+	err = ptrGet(UserData.rootPtr, &UserData)
+	if err != nil {
+		return
+	}
 	NodePtr, exist := UserData.Dir[filename]
 	if exist {
 		FN, err := UserData.getNode(filename)
@@ -397,6 +417,10 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 // existing file, but only whatever additional information and
 // metadata you need.
 func (UserData *User) AppendFile(filename string, data []byte) (err error) {
+	err = UserData.syncUser()
+	if err != nil {
+		return errors.New("AppendFile(fail to update User) < " + err.Error() + " >")
+	}
 	//locally get DirEntry of "filename"
 	FN, err := UserData.getNode(filename)
 	if err != nil {
@@ -424,6 +448,11 @@ func (UserData *User) AppendFile(filename string, data []byte) (err error) {
 // LoadFile loads a file from the Datastore.
 // It should give an error if the file is corrupted in any way.
 func (UserData *User) LoadFile(filename string) (data []byte, err error) {
+	err = UserData.syncUser()
+	if err != nil {
+		return nil, errors.New("LoadFile(fail to update User) < " + err.Error() + " >")
+	}
+
 	FN, err := UserData.getNode(filename)
 	if err != nil {
 		return nil, errors.New("LoadFile(fail to get Node) < " + err.Error() + " >")
@@ -554,6 +583,11 @@ func mbytesTOeptr(mbytes []byte, verKey userlib.DSVerifyKey) (eptr, error) {
 // recipient can access the sharing record, and only the recipient
 // should be able to know the sender.
 func (UserData *User) ShareFile(filename string, recipient string) (string, error) {
+	err := UserData.syncUser()
+	if err != nil {
+		return "", errors.New("ShareFile(fail to update User) < " + err.Error() + " >")
+	}
+
 	FN, err := UserData.getNode(filename)
 	if err != nil {
 		return "", errors.New("ShareFile(fail to get Node) < " + err.Error() + " >")
@@ -601,6 +635,16 @@ func (UserData *User) ShareFile(filename string, recipient string) (string, erro
 // what the filename even is!  However, the recipient must ensure that
 // it is authentically from the sender.
 func (UserData *User) ReceiveFile(filename string, sender string, magicString string) error {
+	// sync & check filename
+	err := UserData.syncUser()
+	if err != nil {
+		return errors.New("LoadFile(fail to update User) < " + err.Error() + " >")
+	}
+	if _, exist := UserData.Dir[filename]; exist {
+		return errors.New("ReceiveFile(filename exist)")
+	}
+
+	// check magic string
 	mBytes := []byte(magicString)
 	_, seVerify, err := getPublic(sender)
 	if err != nil {
@@ -628,24 +672,11 @@ func (UserData *User) ReceiveFile(filename string, sender string, magicString st
 		return errors.New("ReceiveFile(fail to update ShareNode.State to NODE_active) < " + err.Error() + " >")
 	}
 
+	// update User.Dir
 	UserData.Dir[filename] = ShareNodePtr
 	err = ptrSet(UserData.rootPtr, UserData)
 	if err != nil {
 		return errors.New("ReceiveFile(fail to update file entry in User) < " + err.Error() + " >")
-	}
-	return nil
-}
-
-func setRevoke(p ptr) error {
-	var Node node
-	err := ptrGet(p, &Node)
-	if err != nil {
-		return errors.New("setRevoke(fail to get the node) < " + err.Error() + " >")
-	}
-	Node.State = NODE_revoked
-	err = ptrSet(p, Node)
-	if err != nil {
-		return errors.New("setRevoke(faile to update the node) < " + err.Error() + " >")
 	}
 	return nil
 }

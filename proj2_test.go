@@ -114,7 +114,7 @@ func Test_GetUser_2(t *testing.T) {
 
 func Test_GetUser_3(t *testing.T) {
 	clear()
-	t.Log("GetUser(): cleared Datastore")
+	t.Log("GetUser(): modified Datastore")
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
@@ -130,6 +130,67 @@ func Test_GetUser_3(t *testing.T) {
 	if err == nil {
 		t.Error("get user success(should failed); ", err)
 		return
+	}
+}
+
+func Test_GetUser_4(t *testing.T) {
+	clear()
+	t.Log("GetUser(): double instance")
+
+	A1, err := InitUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	A2, err := GetUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	data := []byte{0, 1}
+	A1.StoreFile("file", data)
+	dataRE, err := A2.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if !reflect.DeepEqual(data, dataRE) {
+		t.Error("double user behaver incosistant")
+	}
+
+	data = []byte{0, 1}
+	A2.StoreFile("file", data)
+	dataRE, err = A1.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if !reflect.DeepEqual(data, dataRE) {
+		t.Error("double user behaver incosistant")
+	}
+
+	data = cnct(data, []byte{2, 3})
+	A2.AppendFile("file", []byte{2, 3})
+	dataRE, err = A1.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if !reflect.DeepEqual(data, dataRE) {
+		t.Error("double user behaver incosistant")
+	}
+
+	data = cnct(data, []byte{4, 5})
+	A1.AppendFile("file", []byte{4, 5})
+	dataRE, err = A2.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if !reflect.DeepEqual(data, dataRE) {
+		t.Error("double user behaver incosistant")
 	}
 }
 
@@ -385,6 +446,7 @@ func Test_ShareReceive_1(t *testing.T) {
 		t.Error(err)
 		return
 	}
+
 	// incorect reciver
 	err = C.ReceiveFile("fileC", "A", A2B)
 	if err == nil {
@@ -401,6 +463,13 @@ func Test_ShareReceive_1(t *testing.T) {
 	err = A.ReceiveFile("fileB", "C", string(userlib.RandomBytes(int(userlib.RandomBytes(1)[0]))))
 	if err == nil {
 		t.Error("reciving ramdom msg (should failed)")
+		return
+	}
+	// existing file name
+	B.StoreFile("fileB", []byte{0, 1})
+	err = B.ReceiveFile("fileB", "A", A2B)
+	if err == nil {
+		t.Error("receive to existing filename (should failed)")
 		return
 	}
 }
