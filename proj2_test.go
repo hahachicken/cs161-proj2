@@ -742,3 +742,544 @@ func Test_SRR_3(t *testing.T) {
 		t.Error("revoked a shared file from self(should failed)")
 	}
 }
+
+// following are test that passed [4]
+func Test_InitUser_00(t *testing.T) {
+	clear()
+	t.Log("InitUser(): Postive test")
+
+	_, err := InitUser("alice", "password")
+	if err != nil {
+		// t.Error says the test fails
+		t.Error("Failed to initialize user; ", err)
+		return
+	}
+}
+
+func Test_InitUser_10(t *testing.T) {
+	clear()
+	t.Log("InitUser(): duplicate username")
+
+	_, err := InitUser("alice", "pass")
+	_, err = InitUser("alice", "word")
+	if err == nil {
+		t.Error("successed to initialize user (should failed)")
+		return
+	}
+}
+
+func Test_GetUser_00(t *testing.T) {
+	clear()
+	t.Log("GetUser(): positive test")
+
+	old, err := InitUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	new, err := GetUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if !reflect.DeepEqual(old, new) {
+		t.Error("GetUser not the same with the init user")
+		return
+	}
+}
+
+func Test_GetUser_10(t *testing.T) {
+	clear()
+	t.Log("GetUser(): wrong password")
+
+	_, err := InitUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	_, err = GetUser("alice", "PassWord")
+	if err == nil {
+		t.Error("get user success(should failed); ", err)
+		return
+	}
+}
+
+func Test_GetUser_20(t *testing.T) {
+	clear()
+	t.Log("GetUser(): cleared Datastore")
+
+	_, err := InitUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	clear()
+	_, err = GetUser("alice", "Password")
+	if err == nil {
+		t.Error("get user success(should failed); ", err)
+		return
+	}
+}
+
+func Test_GetUser_30(t *testing.T) {
+	clear()
+	t.Log("GetUser(): cleared Datastore")
+
+	_, err := InitUser("alice", "password")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	{
+		Addr, _ := uuid.FromBytes(userlib.Argon2Key([]byte("alice"), []byte("password"), 16))
+		userlib.DatastoreSet(Addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
+	}
+
+	_, err = GetUser("alice", "password")
+	if err == nil {
+		t.Error("get user success(should failed); ", err)
+		return
+	}
+}
+
+func Test_StoreFile_00(t *testing.T) {
+	clear()
+	t.Log("StoreFile(): new file")
+
+	u, _ := InitUser("alice", "password")
+
+	data := []byte("This is a test")
+	u.StoreFile("file", data)
+
+	dataRE1, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	dataRE2, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if !reflect.DeepEqual(data, dataRE1) || !reflect.DeepEqual(data, dataRE2) {
+		t.Error("Downloaded file is not the same", data, dataRE1, dataRE2)
+		return
+	}
+}
+
+func Test_StoreFile_10(t *testing.T) {
+	clear()
+	t.Log("StoreFile(): exist file")
+
+	u, _ := InitUser("alice", "password")
+
+	data := []byte("This is a test")
+	u.StoreFile("file", data)
+
+	dataRE1, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	dataRE2, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if !reflect.DeepEqual(data, dataRE1) || !reflect.DeepEqual(data, dataRE2) {
+		t.Error("Downloaded file is not the same", data, dataRE1, dataRE2)
+		return
+	}
+}
+
+func Test_AppendFile_00(t *testing.T) {
+	clear()
+	t.Log("AppendFile(): positve test")
+
+	u, _ := InitUser("alice", "password")
+
+	data := []byte{0, 1}
+	u.StoreFile("file", data)
+
+	data = cnct(data, []byte{2, 3})
+	u.AppendFile("file", []byte{2, 3})
+
+	dataRE, err := u.LoadFile("file")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	if !reflect.DeepEqual(data, dataRE) {
+		t.Error("Downloaded file is not the same", data, dataRE)
+		return
+	}
+}
+
+func Test_AppendFile_10(t *testing.T) {
+	clear()
+	t.Log("AppendFile(): file not exist")
+
+	u, _ := InitUser("alice", "password")
+
+	err := u.AppendFile("file", []byte{2, 3})
+	if err == nil {
+		t.Error("append file success (should failed)")
+		return
+	}
+
+}
+
+func Test_LoadFile_00(t *testing.T) {
+	clear()
+	t.Log("LoadFile(): file not exist")
+
+	u, _ := InitUser("alice", "password")
+
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
+	}
+}
+
+func Test_LoadFile_10(t *testing.T) {
+	clear()
+	t.Log("LoadFile(): cleared Datastore")
+
+	u, _ := InitUser("alice", "password")
+	data := []byte{0, 1, 2, 3}
+	u.StoreFile("file", data)
+	clear()
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
+	}
+}
+
+func Test_LoadFile_20(t *testing.T) {
+	clear()
+	t.Log("LoadFile(): cleared Datastore")
+
+	u, _ := InitUser("alice", "password")
+	data := []byte{0, 1, 2, 3}
+	u.StoreFile("file", data)
+	{
+		dsMap := userlib.DatastoreGetMap()
+		for addr := range dsMap {
+			userlib.DatastoreSet(addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
+		}
+	}
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
+	}
+}
+
+func Test_ShareReceive_00(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive(): positive test")
+	/*
+		A
+		├── B
+		│   ├── C
+		│   └── D
+		└── E
+	*/
+
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	D, _ := InitUser("D", "d")
+	E, _ := InitUser("E", "e")
+
+	data := []byte{0, 1, 2}
+	A.StoreFile("fileA", data)
+
+	err := share(A, "A", B, "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = share(B, "B", C, "C")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = share(B, "B", D, "D")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = share(A, "A", E, "E")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	ok := checkShareTree([]*User{A, B, C, D, E}, []string{"A", "B", "C", "D", "E"})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+}
+
+func Test_ShareReceive_10(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive(): negative test")
+
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	A.StoreFile("fileA", []byte{0})
+
+	_, err := A.ShareFile("not exist", "B")
+	if err == nil {
+		t.Error("sharing non-existing file (should failed)")
+		return
+	}
+
+	_, err = A.ShareFile("fileA", "non exist")
+	if err == nil {
+		t.Error("sharing to non-existing user (should failed)")
+		return
+	}
+
+	A2B, err := A.ShareFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	// incorect reciver
+	err = C.ReceiveFile("fileC", "A", A2B)
+	if err == nil {
+		t.Error("reciving by incorrect user (should failed)")
+		return
+	}
+	// incorrect sender parameter
+	err = B.ReceiveFile("fileB", "C", A2B)
+	if err == nil {
+		t.Error("reciving by incorrect sender parameter (should failed)")
+		return
+	}
+	// incorrect magic-string
+	err = A.ReceiveFile("fileB", "C", string(userlib.RandomBytes(int(userlib.RandomBytes(1)[0]))))
+	if err == nil {
+		t.Error("reciving ramdom msg (should failed)")
+		return
+	}
+}
+
+func Test_Revoke_00(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive() & Revoke: simple Postive test")
+	/*
+		A
+		├── B
+		└── C
+	*/
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+
+	data := []byte{0, 1}
+	A.StoreFile("fileA", data)
+
+	err := share(A, "A", C, "C")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	ok := checkShareTree([]*User{A, C}, []string{"A", "C"})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+
+	// share revoke share
+	err = share(A, "A", B, "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = A.RevokeFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	_, err = B.LoadFile("fileB")
+	if err == nil {
+		t.Error("revoked user load the file(should failed)")
+		return
+	}
+	err = B.AppendFile("fileB", []byte{1, 2})
+	if err == nil {
+		t.Error("revoked user append the file(should failed)")
+		return
+	}
+	err = share(A, "A", B, "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	ok = checkShareTree([]*User{A, C}, []string{"A", "C"})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+}
+func Test_Revoke_10(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive() & Revoke: complex Postive test")
+	/*
+		A
+		├── B
+		│   └── C
+		│       ├── D
+		│       └── E
+		└── F
+		    ├── G
+		    │   └── H
+		    └── I
+	*/
+
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	D, _ := InitUser("D", "d")
+	E, _ := InitUser("E", "e")
+	F, _ := InitUser("F", "f")
+	G, _ := InitUser("G", "g")
+	H, _ := InitUser("H", "h")
+	I, _ := InitUser("I", "i")
+
+	data := []byte{0, 1}
+	A.StoreFile("fileA", data)
+
+	err := share(A, "A", B, "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = share(B, "B", C, "C")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	err = share(C, "C", D, "D")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(C, "C", E, "E")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(A, "A", F, "F")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(F, "F", G, "G")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(G, "G", H, "H")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(F, "F", I, "I")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	// check the current tree
+	ok := checkShareTree([]*User{A, B, C, D, E, F, G, H, I}, []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+
+	// revoke B
+	A.RevokeFile("fileA", "C")
+	ok = checkShareTree([]*User{A, F, G, H, I}, []string{"A", "F", "G", "H", "I"})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+}
+
+func Test_Revoke_20(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive() & Revoke: Negative test")
+	/*
+		A
+		└── B
+		    └── C
+	*/
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	_, _ = InitUser("D", "d")
+
+	data := []byte{0, 1}
+	A.StoreFile("fileA", data)
+
+	err := share(A, "A", B, "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(B, "B", C, "C")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	// revoke by non-owner user
+	err = B.RevokeFile("fileB", "C")
+	if err == nil {
+		t.Error("revoked a file from non-owner user(should failed)")
+	}
+	// revoke from no-exist user
+	err = A.RevokeFile("fileA", "not exist")
+	if err == nil {
+		t.Error("revoked a file from nobody(should failed)")
+	}
+	// revoke from never shared user
+	err = A.RevokeFile("fileA", "D")
+	if err == nil {
+		t.Error("revoked a file from nobody(should failed)")
+	}
+	// double revoke from same user
+	err = A.RevokeFile("fileA", "B")
+	if err != nil {
+		t.Error("fail to revoke a file from share user")
+	}
+	err = A.RevokeFile("fileA", "B")
+	if err == nil {
+		t.Error("double revoked a file from the same user(should failed)")
+	}
+	// try revoke from self
+	err = A.RevokeFile("fileA", "A")
+	if err == nil {
+		t.Error("revoked a shared file from self(should failed)")
+	}
+}
