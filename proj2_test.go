@@ -402,7 +402,7 @@ func Test_ShareReceive_1(t *testing.T) {
 		t.Error("sharing non-existing file (should failed)")
 	}
 
-	// share non to non exist user
+	// share to non exist user
 	_, err = A.ShareFile("fileA", "non exist")
 	if err == nil {
 		t.Error("sharing to non-existing user (should failed)")
@@ -412,13 +412,24 @@ func Test_ShareReceive_1(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	// double share
+	_, err = A.ShareFile("fileA", "B")
+	if err == nil {
+		t.Error("double sharing same file to same user(should failed)")
+		return
+	}
 
 	// incorect reciver
 	err = C.ReceiveFile("fileC", "A", A2B)
 	if err == nil {
 		t.Error("reciving by incorrect user (should failed)")
 	}
-	// incorrect sender parameter
+	// nonexist sender
+	err = B.ReceiveFile("fileB", "D", A2B)
+	if err == nil {
+		t.Error("reciving by incorrect sender parameter (should failed)")
+	}
+	// incorrect sender
 	err = B.ReceiveFile("fileB", "C", A2B)
 	if err == nil {
 		t.Error("reciving by incorrect sender parameter (should failed)")
