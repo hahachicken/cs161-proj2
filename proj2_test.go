@@ -681,6 +681,12 @@ func Test_SRR_2(t *testing.T) {
 		return
 	}
 
+	err = A.RevokeFile("fileA", "C")
+	if err == nil {
+		t.Error(err)
+		return
+	}
+
 	// revoke B
 	err = A.RevokeFile("fileA", "B")
 	if err != nil {
