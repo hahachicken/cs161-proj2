@@ -52,7 +52,7 @@ const (
 	MAClen       = 64 // SHA-512 = 64 bytes
 )
 
-//used in shareNode.State
+//used in node.State
 const (
 	NODE_own     = iota
 	NODE_pending = iota

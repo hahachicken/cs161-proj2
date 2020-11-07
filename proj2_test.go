@@ -405,9 +405,9 @@ func Test_ShareReceive_1(t *testing.T) {
 	}
 }
 
-func Test_Revoke_0(t *testing.T) {
+func Test_SRR_0(t *testing.T) {
 	clear()
-	t.Log("ShareFile() & Receive() & Revoke: simple Postive test")
+	t.Log("ShareFile() & ReceiveFile() & RevokeFile(): simple Postive test0")
 	/*
 		A
 		├── B
@@ -463,20 +463,78 @@ func Test_Revoke_0(t *testing.T) {
 		return
 	}
 }
-func Test_Revoke_1(t *testing.T) {
+
+func Test_SRR_1(t *testing.T) {
 	clear()
-	t.Log("ShareFile() & Receive() & Revoke: complex Postive test")
+	t.Log("ShareFile() & ReceiveFile() & RevokeFile(): simple Postive test1")
+
+	A, _ := InitUser("A", "a")
+	B, _ := InitUser("B", "b")
+	C, _ := InitUser("C", "c")
+	D, _ := InitUser("D", "d")
+	data := []byte{0, 1}
+	A.StoreFile("fileA", data)
+
+	err := share(A, "A", B, "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = share(A, "A", C, "C")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	A2D, err := A.ShareFile("fileA", "D")
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	/*
 		A
-		├── B
-		│   └── C
-		│       ├── D
-		│       └── E
-		└── F
-		    ├── G
-		    │   └── H
-		    └── I
+		├── B (active)
+		├── C (active)
+		└── D (pending)
 	*/
+	checkShareTree([]*User{A, B, C}, []string{"A", "B", "C"})
+
+	err = A.RevokeFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	/*
+		A
+		├── B (revoked)
+		├── C (active)
+		└── D (pending)
+	*/
+	ok := checkShareTree([]*User{A, C}, []string{"A", "C"})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+
+	err = D.ReceiveFile("fileD", "A", A2D)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	/*
+		A
+		├── B (revoked)
+		├── C (active)
+		└── D (active)
+	*/
+	checkShareTree([]*User{A, B, C}, []string{"A", "B", "C"})
+	if !ok {
+		t.Error("share tree not ok")
+		return
+	}
+}
+func Test_SRR_2(t *testing.T) {
+	clear()
+	t.Log("ShareFile() & Receive() & RevokeFile(): complex Postive test")
 
 	A, _ := InitUser("A", "a")
 	B, _ := InitUser("B", "b")
@@ -535,6 +593,17 @@ func Test_Revoke_1(t *testing.T) {
 	}
 
 	// check the current tree
+	/*
+		A
+		├── B
+		│   └── C
+		│       ├── D
+		│       └── E
+		└── F
+		    ├── G
+		    │   └── H
+		    └── I
+	*/
 	ok := checkShareTree([]*User{A, B, C, D, E, F, G, H, I}, []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"})
 	if !ok {
 		t.Error("share tree not ok")
@@ -542,7 +611,23 @@ func Test_Revoke_1(t *testing.T) {
 	}
 
 	// revoke B
-	A.RevokeFile("fileA", "C")
+	err = A.RevokeFile("fileA", "B")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	/*
+		A
+		├── B
+		│   └── C
+		│       ├── D
+		│       └── E
+		└── F
+		    ├── G
+		    │   └── H
+		    └── I
+	*/
 	ok = checkShareTree([]*User{A, F, G, H, I}, []string{"A", "F", "G", "H", "I"})
 	if !ok {
 		t.Error("share tree not ok")
@@ -550,9 +635,9 @@ func Test_Revoke_1(t *testing.T) {
 	}
 }
 
-func Test_Revoke_2(t *testing.T) {
+func Test_SRR_3(t *testing.T) {
 	clear()
-	t.Log("ShareFile() & Receive() & Revoke: Negative test")
+	t.Log("ShareFile() & Receive() & RevokeFile(): Negative test")
 	/*
 		A
 		└── B
