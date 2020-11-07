@@ -37,10 +37,7 @@ func Test_InitUser_0(t *testing.T) {
 
 	_, err := InitUser("alice", "password")
 	if err != nil {
-		t.Error("Failed to initialize user; ", err)
-	}
-	_, err = InitUser("bob", "password")
-	if err != nil {
+		// t.Error says the test fails
 		t.Error("Failed to initialize user; ", err)
 	}
 }
@@ -312,6 +309,26 @@ func Test_LoadFile_1(t *testing.T) {
 	data := []byte{0, 1, 2, 3}
 	u.StoreFile("file", data)
 	clear()
+	_, err := u.LoadFile("file")
+	if err == nil {
+		t.Error("load file success (should failed)")
+		return
+	}
+}
+
+func Test_LoadFile_2(t *testing.T) {
+	clear()
+	t.Log("LoadFile(): modify Datastore")
+
+	u, _ := InitUser("alice", "password")
+	data := []byte{0, 1, 2, 3}
+	u.StoreFile("file", data)
+	{
+		dsMap := userlib.DatastoreGetMap()
+		for addr := range dsMap {
+			userlib.DatastoreSet(addr, userlib.RandomBytes(int(userlib.RandomBytes(1)[0])))
+		}
+	}
 	_, err := u.LoadFile("file")
 	if err == nil {
 		t.Error("load file success (should failed)")
