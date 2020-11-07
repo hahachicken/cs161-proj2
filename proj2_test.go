@@ -319,34 +319,6 @@ func Test_LoadFile_1(t *testing.T) {
 	}
 }
 
-func Test_LoadFile_2(t *testing.T) {
-	clear()
-	t.Log("LoadFile(): append rooback")
-
-	u, _ := InitUser("alice", "password")
-	data := []byte{0, 1, 2, 3}
-	u.StoreFile("file", data)
-
-	oldMap := userlib.DatastoreGetMap()
-	data = concatenate(data, []byte{0, 1})
-	u.AppendFile("file", []byte{0, 1})
-	newMap := userlib.DatastoreGetMap()
-
-	for k := range newMap {
-		if _, exist := oldMap[k]; !exist {
-			t.Log(k)
-			userlib.DatastoreDelete(k)
-		}
-	}
-
-	dataRE, err := u.LoadFile("file")
-	//t.Log(err, dataRE, data)
-	if err == nil && !reflect.DeepEqual(dataRE, data) {
-		t.Error("load file not the same AND no error")
-		return
-	}
-}
-
 // 3 helper func to share and check share tree
 func share(sender *User, senderUN string, recipient *User, recipientUN string) error {
 	msg, err := sender.ShareFile("file"+senderUN, recipientUN)
