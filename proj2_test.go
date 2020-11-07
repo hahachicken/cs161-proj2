@@ -429,12 +429,14 @@ func Test_ShareReceive_1(t *testing.T) {
 	C, _ := InitUser("C", "c")
 	A.StoreFile("fileA", []byte{0})
 
+	// share non exist file
 	_, err := A.ShareFile("not exist", "B")
 	if err == nil {
 		t.Error("sharing non-existing file (should failed)")
 		return
 	}
 
+	// share non to non exist user
 	_, err = A.ShareFile("fileA", "non exist")
 	if err == nil {
 		t.Error("sharing to non-existing user (should failed)")
