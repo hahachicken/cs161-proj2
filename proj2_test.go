@@ -412,12 +412,6 @@ func Test_ShareReceive_1(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	// double share
-	_, err = A.ShareFile("fileA", "B")
-	if err == nil {
-		t.Error("double sharing same file to same user(should failed)")
-		return
-	}
 
 	// incorect reciver
 	err = C.ReceiveFile("fileC", "A", A2B)
