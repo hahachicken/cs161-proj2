@@ -85,8 +85,8 @@ type node struct {
 }
 
 type header struct {
-	FileLength uint
-	BlockPtrs  []ptr
+	FileHash  [64]byte
+	BlockPtrs []ptr
 }
 
 // helper func
@@ -97,6 +97,14 @@ func concatenate(s1 []byte, s2 []byte) []byte {
 		re = append(re, s2[i])
 	}
 	return re
+}
+
+func cnctHash(hash [64]byte, data []byte) [64]byte {
+	var re []byte = hash[:]
+	for i := 0; i < len(data); i++ {
+		re = append(re, data[i])
+	}
+	return userlib.Hash(re)
 }
 
 // init a new random ptr
@@ -376,7 +384,7 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 		}
 
 		// update fileHeader
-		FH.FileLength = uint(len(data))
+		FH.FileHash = userlib.Hash(data)
 		FH.BlockPtrs = []ptr{
 			newPtr()}
 		err = ptrSet(FN.HeaderPtr, FH)
@@ -402,7 +410,7 @@ func (UserData *User) StoreFile(filename string, data []byte) {
 		make(map[string]ptr)}
 
 	FH := header{
-		uint(len(data)),
+		userlib.Hash(data),
 		[]ptr{newPtr()}}
 
 	// Update Datastore
@@ -435,7 +443,7 @@ func (UserData *User) AppendFile(filename string, data []byte) (err error) {
 	}
 
 	// set file header
-	FH.FileLength += uint(len(data))
+	FH.FileHash = cnctHash(FH.FileHash, data)
 	NewBlockPtr := newPtr()
 	FH.BlockPtrs = append(FH.BlockPtrs, NewBlockPtr)
 
@@ -626,7 +634,7 @@ func (UserData *User) ShareFile(filename string, recipient string) (string, erro
 		return "", errors.New("ShareFile() < " + err.Error() + " >")
 	}
 
-	return string(mBytes), nil
+	return hex.EncodeToString(mBytes), nil
 }
 
 // ReceiveFile :
@@ -645,7 +653,7 @@ func (UserData *User) ReceiveFile(filename string, sender string, magicString st
 	}
 
 	// check magic string
-	mBytes := []byte(magicString)
+	mBytes, err := hex.DecodeString(magicString)
 	_, seVerify, err := getPublic(sender)
 	if err != nil {
 		return errors.New("ReceiveFile(\"sender\" may incorrect) < " + err.Error() + " >")
@@ -727,7 +735,7 @@ func (UserData *User) RevokeFile(filename string, targetUsername string) (err er
 
 	// init and set new File Header
 	newFHPtr := newPtr()
-	newFH := header{uint(len(data)), []ptr{newPtr()}}
+	newFH := header{userlib.Hash(data), []ptr{newPtr()}}
 	err = ptrSet(newFHPtr, newFH)
 	if err != nil {
 		return errors.New("RevokeFile(fail to set new fileHeader) < " + err.Error() + " >")

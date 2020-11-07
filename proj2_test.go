@@ -222,6 +222,38 @@ func Test_StoreFile_1(t *testing.T) {
 		t.Error("Downloaded file is not the same", data, dataRE1, dataRE2)
 	}
 }
+func Test_StoreFile_2(t *testing.T) {
+	clear()
+	t.Log("StoreFile(): empty file")
+
+	u, _ := InitUser("alice", "password")
+
+	// empty file
+	data := make([]byte, 0)
+	u.StoreFile("f", data)
+
+	dataRE, err := u.LoadFile("f")
+	if err != nil {
+		t.Error(err)
+	}
+
+	if len(dataRE) != 0 {
+		t.Error("Downloaded file is not the same", data, dataRE)
+	}
+
+	// empty file name
+	data = []byte{0, 1}
+	u.StoreFile("", data)
+
+	dataRE, err = u.LoadFile("")
+	if err != nil {
+		t.Error(err)
+	}
+
+	if !reflect.DeepEqual(data, dataRE) {
+		t.Error("Downloaded file is not the same", data, dataRE)
+	}
+}
 
 func Test_AppendFile_0(t *testing.T) {
 	clear()
