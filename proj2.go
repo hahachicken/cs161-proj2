@@ -475,12 +475,21 @@ func (UserData *User) LoadFile(filename string) (data []byte, err error) {
 
 	// get the file data
 	var temp []byte
-	for _, BlockPtr := range FH.BlockPtrs {
+	var tempHash [64]byte
+	for i, BlockPtr := range FH.BlockPtrs {
 		err = ptrGet(BlockPtr, &temp)
 		if err != nil {
 			return nil, errors.New("LoadFile(fail to load data blocks) < " + err.Error() + " >")
 		}
 		data = concatenate(data, temp)
+		if i == 0 {
+			tempHash = userlib.Hash(data)
+		} else {
+			tempHash = cnctHash(tempHash, temp)
+		}
+	}
+	if tempHash != FH.FileHash {
+		return nil, errors.New("LoadFile(Datastore mix old and new)")
 	}
 	return data, nil
 }
